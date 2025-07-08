@@ -24,7 +24,7 @@ namespace Il2CppSDK
                 return FormatIl2CppGeneric(type);
             }
 
-            string result = "uintptr_t";
+            string result = "void*";
 
             if (type.FullName.Equals("System.Int8"))
                 result = "int8_t";
@@ -69,25 +69,25 @@ namespace Il2CppSDK
                 result = "signed char";
 
             if (type.FullName.Equals("System.String"))
-                result = "Il2CppString*";
+                result = "BNM::Structures::Mono::String*";
 
             if (type.FullName.Equals("UnityEngine.Vector2"))
-                result = "Il2CppVector2";
+                result = "BNM::Structures::Unity::Vector2";
 
             if (type.FullName.Equals("UnityEngine.Vector3"))
-                result = "Il2CppVector3";
+                result = "BNM::Structures::Unity::Vector3";
 
             if (type.FullName.Equals("UnityEngine.Quaternion"))
-                result = "Il2CppQuaternion";
+                result = "BNM::Structures::Unity::Quaternion";
 
             if (type.FullName.Equals("UnityEngine.Rect"))
-                result = "Il2CppRect";
+                result = "BNM::Structures::Unity::Rect";
 
             if (type.FullName.Equals("System.Void"))
                 result = "void";
 
             if (type.FullName.Contains("[]"))
-                result = "Il2CppArray<" + result + ">*";
+                result = "BNM::Structures::Mono::Array<" + result + ">*";
 
             return result;
         }
@@ -126,12 +126,12 @@ namespace Il2CppSDK
             string result = "";
             if (type.GetName().StartsWith("List"))
             {
-                result = "Il2CppList<";
+                result = "BNM::Structures::Mono::List<";
             }
             else
             if (type.GetName().StartsWith("Dictionary"))
             {
-                result = "Il2CppDictionary<";
+                result = "BNM::Structures::Dictionary<";
             }
             else
             {
@@ -176,14 +176,17 @@ namespace Il2CppSDK
                 var fieldOffset = GetFieldOffset(field);
 
                 currentFile.Write(string.Format("\ttemplate <typename T = {0}>", fieldType));
-                currentFile.WriteLine(string.Format(" {0}{1}& {2}() {{", (field.IsStatic ? "static " : ""), "T", fieldName));
+                currentFile.WriteLine(string.Format(" {0}{1} {2}() {{", (field.IsStatic ? "static " : ""), "T", fieldName));
                 if(field.IsStatic)
                 {
-                    currentFile.WriteLine(string.Format("\t\treturn *({0}*)((uintptr_t)StaticClass()->static_fields + {1});", "T", fieldOffset));
+                    currentFile.WriteLine(string.Format("\t\tstatic BNM::Field<{0}> field = StaticClass().GetField(\"{1}\");", "T", fieldName));
+                    currentFile.WriteLine("\t\treturn field();");
                 } 
                 else
                 {
-                    currentFile.WriteLine(string.Format("\t\treturn *({0}*)((uintptr_t)this + {1});", "T", fieldOffset));
+                    currentFile.WriteLine(string.Format("\t\tstatic BNM::Field<{0}> field = StaticClass().GetField(\"{1}\");", "T", fieldName));
+                    currentFile.WriteLine("\t\tfield.SetInstance((BNM::IL2CPP::Il2CppObject*)this);");
+                    currentFile.WriteLine("\t\treturn field();");
                 }
                 currentFile.WriteLine("\t}");
             }
@@ -248,23 +251,22 @@ namespace Il2CppSDK
                 currentFile.WriteLine(string.Format(" {0}{1} {2}({3}) {{", (method.IsStatic ? "static " : ""), "T", methodName, string.Join(", ", methodParams)));
                 if (!method.IsStatic)
                 {
-                    if (methodParams.Count > 0)
-                    {
-                        currentFile.WriteLine("\t\treturn (({0} (*)({1}*, {2}))(Il2CppBase() + {3}))(this, {4});", "T", FormatToValidClassname(clazz.Name), string.Join(", ", paramTypes), methodOffset, string.Join(", ", paramNames));
-                    } else currentFile.WriteLine("\t\treturn (({0} (*)({1}*))(Il2CppBase() + {3}))(this);", "T", FormatToValidClassname(clazz.Name), string.Join(", ", paramTypes), methodOffset);
+                    currentFile.WriteLine("\t\tstatic BNM::Method<T> method = StaticClass().GetMethod(\"{0}\", {1});", method.Name, methodParams.Count);
+
+                    currentFile.Write("\t\treturn method[(BNM::IL2CPP::Il2CppObject*)this](");
+                    currentFile.Write(string.Join(", ", paramNames));
+                    currentFile.WriteLine(");");
                 }
                 else
                 {
-                    if (methodParams.Count > 0)
-                    {
-                        currentFile.WriteLine("\t\treturn (({0} (*)(void *, {1}))(Il2CppBase() + {2}))(0, {3});", "T", string.Join(", ", paramTypes), methodOffset, string.Join(", ", paramNames));
-                    }
-                    else
-                    {
-                        currentFile.WriteLine("\t\treturn (({0} (*)(void *))(Il2CppBase() + {2}))(0);", "T", string.Join(", ", paramTypes), methodOffset, string.Join(", ", paramNames));
-                    }
+                    currentFile.WriteLine("\t\tstatic BNM::Method<T> method = StaticClass().GetMethod(\"{0}\", {1});", method.Name, methodParams.Count);
+
+                    currentFile.Write("\t\treturn method(");
+                    currentFile.Write(string.Join(", ", paramNames));
+                    currentFile.WriteLine(");");
                 }
                 currentFile.WriteLine("\t}");
+
             }
         }
         static void ParseClass(TypeDef clazz)
@@ -276,14 +278,12 @@ namespace Il2CppSDK
             var validClassname = FormatToValidClassname(className);
             
             currentFile.WriteLine("#pragma once");
-            currentFile.WriteLine("#include <Il2Cpp/Il2Cpp.h>");
+            currentFile.WriteLine("#include <BNMIncludes.hpp>");
 
             bool useNamespace = namespaze.Length > 0;
 
-            if (useNamespace)
-            {
-                currentFile.WriteLine("namespace " + namespaze + " {");
-            }
+            currentFile.WriteLine("namespace " + (useNamespace ? namespaze : "GlobalNamespace") + " {");
+            
 
             currentFile.WriteLine();
 
@@ -293,8 +293,8 @@ namespace Il2CppSDK
 
             currentFile.WriteLine();
 
-            currentFile.WriteLine("\tstatic Il2CppClass *StaticClass() {");
-            currentFile.WriteLine(string.Format("\t\treturn (Il2CppClass *)(Il2Cpp::GetClass(\"{0}\", \"{1}\", \"{2}\"));", module.Name, namespaze, className));
+            currentFile.WriteLine("\tstatic BNM::Class StaticClass() {");
+            currentFile.WriteLine(string.Format("\t\treturn BNM::Class(\"{0}\", \"{1}\", BNM::Image(\"{2}\"));", namespaze, className, module.Name));
             currentFile.WriteLine("\t}");
 
             currentFile.WriteLine();
@@ -331,31 +331,31 @@ namespace Il2CppSDK
                 var validClassname = FormatToValidClassname(className);
 
                 string outputPath = OUTPUT_DIR;
-                outputPath += "\\" + module.Name;
+                outputPath += "/" + module.Name;
 
                 if (!Directory.Exists(outputPath))
                     Directory.CreateDirectory(outputPath);
 
                 if (namespaze.Length > 0)
                 {
-                    File.AppendAllText(outputPath + "\\" + namespaze + ".h", string.Format("#include \"Includes/{0}/{1}.h\"\r\n", namespaze, classFilename));
+                    File.AppendAllText(outputPath + "/" + namespaze + ".h", string.Format("#include \"Includes/{0}/{1}.h\"\r\n", namespaze, classFilename));
                 }
                 else
                 {
-                    File.AppendAllText(outputPath + "\\-.h", string.Format("#include \"Includes/{0}.h\"\r\n", classFilename));
+                    File.AppendAllText(outputPath + "/-.h", string.Format("#include \"Includes/{0}.h\"\r\n", classFilename));
                 }
 
-                outputPath += "\\Includes";
+                outputPath += "/Includes";
 
                 if(namespaze.Length > 0)
                 {
-                    outputPath += "\\" + namespaze;
+                    outputPath += "/" + namespaze;
                 }
 
                 if (!Directory.Exists(outputPath))
                     Directory.CreateDirectory(outputPath);
 
-                outputPath += "\\" + classFilename + ".h";
+                outputPath += "/" + classFilename + ".h";
 
                 currentFile = new StreamWriter(outputPath);
 
@@ -370,7 +370,7 @@ namespace Il2CppSDK
             ModuleContext modCtx = ModuleDef.CreateModuleContext();
             currentModule = ModuleDefMD.Load(moduleFile, modCtx);
 
-            string moduleOutput = OUTPUT_DIR + "\\" + currentModule.Name;
+            string moduleOutput = OUTPUT_DIR + "/" + currentModule.Name;
 
             if (!Directory.Exists(moduleOutput))
                 Directory.CreateDirectory(moduleOutput);
