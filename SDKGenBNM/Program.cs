@@ -8,6 +8,8 @@ using dnlib.DotNet;
 using dnlib.IO;
 using dnlib.Utils;
 using System.Text.RegularExpressions;
+using System.Collections;
+
 namespace Il2CppSDK
 {
     class Program
@@ -17,176 +19,52 @@ namespace Il2CppSDK
         static ModuleDefMD currentModule = null;
         static StreamWriter currentFile = null;
 
-        static string Il2CppTypeToCppType(TypeSig type)
-        {
-            if (type.IsGenericInstanceType)
-            {
-                return FormatIl2CppGeneric(type);
-            }
-
-            string result = "void*";
-
-            if (type.FullName.Equals("System.Int8"))
-                result = "int8_t";
-
-            if (type.FullName.Equals("System.UInt8"))
-                result = "uint8_t";
-
-            if (type.FullName.Equals("System.Int16"))
-                result = "int16_t";
-
-            if (type.FullName.Equals("System.UInt16"))
-                result = "uint16_t";
-
-            if (type.FullName.Equals("System.Int32"))
-                result = "int32_t";
-
-            if (type.FullName.Equals("System.UInt32"))
-                result = "uint32_t";
-
-            if (type.FullName.Equals("System.Int64"))
-                result = "int64_t";
-
-            if (type.FullName.Equals("System.UInt64"))
-                result = "uint64_t";
-
-            if (type.FullName.Equals("System.Single"))
-                result = "float";
-
-            if (type.FullName.Equals("System.Double"))
-                result = "double";
-
-            if (type.FullName.Equals("System.Boolean"))
-                result = "bool";
-
-            if (type.FullName.Equals("System.Char"))
-                result = "char";
-
-            if (type.FullName.Equals("System.Byte"))
-                result = "unsigned char";
-
-            if (type.FullName.Equals("System.SByte"))
-                result = "signed char";
-
-            if (type.FullName.Equals("System.String"))
-                result = "BNM::Structures::Mono::String*";
-
-            if (type.FullName.Equals("UnityEngine.Vector2"))
-                result = "BNM::Structures::Unity::Vector2";
-
-            if (type.FullName.Equals("UnityEngine.Vector3"))
-                result = "BNM::Structures::Unity::Vector3";
-
-            if (type.FullName.Equals("UnityEngine.Quaternion"))
-                result = "BNM::Structures::Unity::Quaternion";
-
-            if (type.FullName.Equals("UnityEngine.Rect"))
-                result = "BNM::Structures::Unity::Rect";
-
-            if (type.FullName.Equals("System.Void"))
-                result = "void";
-
-            if (type.FullName.Contains("[]"))
-                result = "BNM::Structures::Mono::Array<" + result + ">*";
-
-            return result;
-        }
-        static string GetFieldOffset(FieldDef field)
-        {
-            foreach (var attr in field.CustomAttributes)
-            {
-                if (attr.AttributeType.Name.Equals("FieldOffsetAttribute"))
-                {
-                    var Offset = attr.GetField("Offset");
-                    if (Offset != null && Offset.Value != null)
-                    {
-                        return Offset.Value.ToString();
-                    }
-                }
-            }
-            return "0x0";
-        }
-        static string GetMethodOffset(MethodDef method)
-        {
-            foreach (var attr in method.CustomAttributes)
-            {
-                if (attr.AttributeType.Name.Equals("AddressAttribute"))
-                {
-                    var Offset = attr.GetField("Offset");
-                    if (Offset != null && Offset.Value != null)
-                    {
-                        return Offset.Value.ToString();
-                    }
-                }
-            }
-            return "0x0";
-        }
-        static string FormatIl2CppGeneric(TypeSig type)
-        {
-            string result = "";
-            if (type.GetName().StartsWith("List"))
-            {
-                result = "BNM::Structures::Mono::List<";
-            }
-            else
-            if (type.GetName().StartsWith("Dictionary"))
-            {
-                result = "BNM::Structures::Dictionary<";
-            }
-            else
-            {
-                return "void*";
-            }
-            List<string> args = new List<string>();
-            foreach (var arg in type.ToGenericInstSig().GenericArguments)
-            {
-                if (arg.IsGenericInstanceType)
-                {
-                    args.Add(FormatIl2CppGeneric(arg));
-                }
-                else args.Add(Il2CppTypeToCppType(arg));
-            }
-            result += string.Join(", ", args.ToArray());
-            result += ">*";
-            return result;
-        }
-        static string FormatToValidClassname(string className)
-        {
-            Regex rgx = new Regex("[^a-zA-Z0-9]");
-            return rgx.Replace(className, "");
-        }
-
         static void ParseFields(TypeDef clazz)
         {
-            foreach(var rid in currentModule.Metadata.GetFieldRidList(clazz.Rid))
+            foreach (var rid in currentModule.Metadata.GetFieldRidList(clazz.Rid))
             {
                 var field = currentModule.ResolveField(rid);
 
-                if(field == null)
+                if (field == null)
                 {
                     continue;
                 }
 
-                var fieldName = field.Name.Replace("::", "_").Replace("<", "").Replace(">", "").Replace("k__BackingField", "").Replace(".", "_").Replace("`", "_");
+                var fieldName = field.Name.Replace("::", "_").Replace("<", "$").Replace(">", "$").Replace("k__BackingField", "").Replace(".", "_").Replace("`", "_");
 
                 if (fieldName.Equals("auto") || fieldName.Equals("register"))
                     fieldName += "_";
 
-                var fieldType = Il2CppTypeToCppType(field.FieldType);
-                var fieldOffset = GetFieldOffset(field);
+                var fieldType = Utils.Il2CppTypeToCppType(field.FieldType);
 
+                //get
                 currentFile.Write(string.Format("\ttemplate <typename T = {0}>", fieldType));
-                currentFile.WriteLine(string.Format(" {0}{1} {2}() {{", (field.IsStatic ? "static " : ""), "T", fieldName));
-                if(field.IsStatic)
+                currentFile.WriteLine(string.Format(" {0}{1} {2}() {{", (field.IsStatic ? "static " : ""), "T", Utils.FormatInvalidName(fieldName)));
+                if (field.IsStatic)
                 {
                     currentFile.WriteLine(string.Format("\t\tstatic BNM::Field<{0}> field = StaticClass().GetField(\"{1}\");", "T", fieldName));
                     currentFile.WriteLine("\t\treturn field();");
-                } 
+                }
                 else
                 {
                     currentFile.WriteLine(string.Format("\t\tstatic BNM::Field<{0}> field = StaticClass().GetField(\"{1}\");", "T", fieldName));
                     currentFile.WriteLine("\t\tfield.SetInstance((BNM::IL2CPP::Il2CppObject*)this);");
                     currentFile.WriteLine("\t\treturn field();");
+                }
+                currentFile.WriteLine("\t}");
+
+                // set
+                currentFile.WriteLine(string.Format("\t{0}{1} set_{2}({3}) {{", (field.IsStatic ? "static " : ""), "void", Utils.FormatInvalidName(fieldName), fieldType + " value"));
+                if (field.IsStatic)
+                {
+                    currentFile.WriteLine(string.Format("\t\tstatic BNM::Field<{0}> field = StaticClass().GetField(\"{1}\");", fieldType, fieldName));
+                    currentFile.WriteLine("\t\tfield.Set(value);");
+                }
+                else
+                {
+                    currentFile.WriteLine(string.Format("\t\tstatic BNM::Field<{0}> field = StaticClass().GetField(\"{1}\");", fieldType, fieldName));
+                    currentFile.WriteLine("\t\tfield.SetInstance((BNM::IL2CPP::Il2CppObject*)this);");
+                    currentFile.WriteLine("\t\tfield.Set(value);");
                 }
                 currentFile.WriteLine("\t}");
             }
@@ -207,14 +85,15 @@ namespace Il2CppSDK
                 if (methodName.Equals("auto") || methodName.Equals("register"))
                     methodName += "_";
 
-                var methodType = Il2CppTypeToCppType(method.ReturnType);
-                var methodOffset = GetMethodOffset(method);
+                var methodType = Utils.Il2CppTypeToCppType(method.ReturnType);
 
                 string methodKey = clazz.Namespace + clazz.FullName + method.Name;
+                
                 if (m_DuplicateMethodTable.ContainsKey(methodKey))
                 {
                     methodName += "_" + m_DuplicateMethodTable[methodKey]++;
-                } else
+                }
+                else
                 {
                     m_DuplicateMethodTable.Add(methodKey, 1);
                 }
@@ -227,7 +106,7 @@ namespace Il2CppSDK
                 {
                     if (param.IsNormalMethodParameter)
                     {
-                        var paramType = Il2CppTypeToCppType(param.Type);
+                        var paramType = Utils.Il2CppTypeToCppType(param.Type);
 
                         if (param.HasParamDef)
                         {
@@ -243,18 +122,18 @@ namespace Il2CppSDK
                         paramTypes.Add(paramType);
                         paramNames.Add(param.Name);
 
-                        methodParams.Add(paramType + " " + param.Name);
+                        methodParams.Add(paramType + " " + Utils.FormatInvalidName(param.Name));
                     }
                 }
 
                 currentFile.Write(string.Format("\ttemplate <typename T = {0}>", methodType));
-                currentFile.WriteLine(string.Format(" {0}{1} {2}({3}) {{", (method.IsStatic ? "static " : ""), "T", methodName, string.Join(", ", methodParams)));
+                currentFile.WriteLine(string.Format(" {0}{1} {2}({3}) {{", (method.IsStatic ? "static " : ""), "T", Utils.FormatInvalidName(methodName), string.Join(", ", methodParams)));
                 if (!method.IsStatic)
                 {
                     currentFile.WriteLine("\t\tstatic BNM::Method<T> method = StaticClass().GetMethod(\"{0}\", {1});", method.Name, methodParams.Count);
 
                     currentFile.Write("\t\treturn method[(BNM::IL2CPP::Il2CppObject*)this](");
-                    currentFile.Write(string.Join(", ", paramNames));
+                    currentFile.Write(string.Join(", ", paramNames.Select(x => Utils.FormatInvalidName(x))));
                     currentFile.WriteLine(");");
                 }
                 else
@@ -262,7 +141,7 @@ namespace Il2CppSDK
                     currentFile.WriteLine("\t\tstatic BNM::Method<T> method = StaticClass().GetMethod(\"{0}\", {1});", method.Name, methodParams.Count);
 
                     currentFile.Write("\t\treturn method(");
-                    currentFile.Write(string.Join(", ", paramNames));
+                    currentFile.Write(string.Join(", ", paramNames.Select(x => Utils.FormatInvalidName(x))));
                     currentFile.WriteLine(");");
                 }
                 currentFile.WriteLine("\t}");
@@ -275,15 +154,28 @@ namespace Il2CppSDK
             var namespaze = clazz.Namespace;
             var className = (string)clazz.Name;
             var classFilename = string.Concat(className.Split(Path.GetInvalidFileNameChars()));
-            var validClassname = FormatToValidClassname(className);
-            
+            var validClassname = Utils.FormatInvalidName(className);
+
             currentFile.WriteLine("#pragma once");
             currentFile.WriteLine("#include <BNMIncludes.hpp>");
 
-            bool useNamespace = namespaze.Length > 0;
+            int namespaceCount = 0;
 
-            currentFile.WriteLine("namespace " + (useNamespace ? namespaze : "GlobalNamespace") + " {");
-            
+            currentFile.WriteLine("namespace " + clazz.Module.Assembly.Name.Replace(".dll", "").Replace(".", "").Replace("-", "_") + " {");
+            namespaceCount++; // this is so lazy lol but i hope it fixes | holy effort twin
+            string[] nameSpaceSplit = namespaze.ToString().Split(".");
+            if (nameSpaceSplit.Length == 0)
+            {
+                currentFile.WriteLine("namespace GlobalNamespace {");
+            }
+            else
+            {
+                for (int i = 0; i < nameSpaceSplit.Length; ++i)
+                {
+                    currentFile.WriteLine("namespace " + nameSpaceSplit[i] + " {");
+                    namespaceCount++;
+                }
+            }
 
             currentFile.WriteLine();
 
@@ -309,7 +201,11 @@ namespace Il2CppSDK
 
             currentFile.WriteLine("};");
             currentFile.WriteLine();
-            currentFile.WriteLine("}");
+
+            for (int i = 0; i < namespaceCount; ++i)
+            {
+                currentFile.WriteLine("}");
+            }
 
         }
         static void ParseClasses()
@@ -328,7 +224,7 @@ namespace Il2CppSDK
                 var namespaze = type.Namespace.Replace("<", "").Replace(">", "");
                 var className = (string)type.Name.Replace("<", "").Replace(">", "");
                 var classFilename = string.Concat(className.Split(Path.GetInvalidFileNameChars()));
-                var validClassname = FormatToValidClassname(className);
+                var validClassname = Utils.FormatInvalidName(className);
 
                 string outputPath = OUTPUT_DIR;
                 outputPath += "/" + module.Name;
