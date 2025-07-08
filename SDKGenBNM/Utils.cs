@@ -80,6 +80,57 @@ public static class Utils
         return result;
     }
 
+    public static bool IsKeyword(string str)
+    {
+        string[] keywords = [
+            "", "alignas", "alignof", "and", "and_eq", "asm", "atomic_cancel", "atomic_commit", "atomic_noexcept",
+            "auto", "bitand", "bitor", "bool", "break", "case", "catch", "char", "char8_t", "char16_t", "char32_t",
+            "class", "compl", "concept", "const", "consteval", "constexpr", "constinit", "const_cast", "continue",
+            "contract_assert", "co_await", "co_return", "co_yield", "decltype", "default", "delete", "do", "double",
+            "dynamic_cast", "else", "enum", "explicit", "export", "extern", "false", "float", "for", "friend", "goto",
+            "if", "inline", "int", "long", "mutable", "namespace", "new", "noexcept", "not", "not_eq", "nullptr",
+            "operator", "or", "or_eq", "private", "protected", "public", "reflexpr", "register", "reinterpret_cast",
+            "requires", "return", "short", "signed", "sizeof", "static", "static_assert", "static_cast", "struct",
+            "switch", "synchronized", "template", "this", "thread_local", "throw", "true", "try", "typedef", "typeid",
+            "typename", "union", "unsigned", "using", "virtual", "void", "volatile", "wchar_t", "while", "xor", "xor_eq",
+
+            "abstract", "add", "as", "base", "byte", "checked", "decimal", "delegate", "event", "explicit", "extern",
+            "finally", "fixed", "foreach", "implicit", "in", "interface", "internal", "is", "lock", "null", "object",
+            "out", "override", "params", "readonly", "ref", "remove", "sbyte", "sealed", "stackalloc", "string",
+            "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using static", "value", "when", "where",
+            "yield",
+
+            "INT32_MAX", "INT32_MIN", "UINT32_MAX", "UINT16_MAX", "INT16_MAX", "UINT8_MAX", "INT8_MAX", "INT_MAX",
+            "Assert", "NULL", "O",
+        ];
+        return keywords.Contains(str);
+    }
+
+    public static string[] MakeValidParams(string[] paramNames)
+    {
+        var results = new List<string>();
+        var seen = new Dictionary<string, int>();
+
+        foreach (var param in paramNames)
+        {
+            string cparam = param;
+            if (seen.ContainsKey(param))
+            {
+                seen[param]++;
+                cparam = $"{param}_{seen[param]}";
+            }
+            else
+            {
+                seen[param] = 0;
+            }
+
+            results.Add(cparam);
+        }
+
+        return results.ToArray();
+    }
+        
+
     public static string FormatInvalidName(string className)
     {
         string str = className.Trim()
@@ -96,6 +147,9 @@ public static class Utils
 
         if (StartsWithNumber(str))
             str = "_" + str;
+
+        if (IsKeyword(className))
+            str = "$" + str;
 
         return str;
     }

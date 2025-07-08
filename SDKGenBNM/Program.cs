@@ -68,14 +68,14 @@ namespace Il2CppSDK
                 currentFile.WriteLine(string.Format(" {0}{1} {2}() {{", (field.IsStatic ? "static " : ""), "T", Utils.FormatInvalidName(fieldName)));
                 if (field.IsStatic)
                 {
-                    WriteIndented(string.Format("\tstatic BNM::Field<{0}> field = StaticClass().GetField(\"{1}\");", "T", fieldName));
-                    WriteIndented("\treturn field();");
+                    WriteIndented(string.Format("\tstatic BNM::Field<{0}> __bnm__field__ = StaticClass().GetField(\"{1}\");", "T", fieldName));
+                    WriteIndented("\treturn __bnm__field__();");
                 }
                 else
                 {
-                    WriteIndented(string.Format("\tstatic BNM::Field<{0}> field = StaticClass().GetField(\"{1}\");", "T", fieldName));
-                    WriteIndented("\tfield.SetInstance((BNM::IL2CPP::Il2CppObject*)this);");
-                    WriteIndented("\treturn field();");
+                    WriteIndented(string.Format("\tstatic BNM::Field<{0}> __bnm__field__ = StaticClass().GetField(\"{1}\");", "T", fieldName));
+                    WriteIndented("\t__bnm__field__.SetInstance((BNM::IL2CPP::Il2CppObject*)this);");
+                    WriteIndented("\treturn __bnm__field__();");
                 }
                 WriteIndented("}");
 
@@ -83,14 +83,14 @@ namespace Il2CppSDK
                 WriteIndented(string.Format("{0}{1} set_{2}({3}) {{", (field.IsStatic ? "static " : ""), "void", Utils.FormatInvalidName(fieldName), fieldType + " value"));
                 if (field.IsStatic)
                 {
-                    WriteIndented(string.Format("\tstatic BNM::Field<{0}> field = StaticClass().GetField(\"{1}\");", fieldType, fieldName));
-                    WriteIndented("\tfield.Set(value);");
+                    WriteIndented(string.Format("\tstatic BNM::Field<{0}> __bnm__field__ = StaticClass().GetField(\"{1}\");", fieldType, fieldName));
+                    WriteIndented("\t__bnm__field__.Set(value);");
                 }
                 else
                 {
-                    WriteIndented(string.Format("\tstatic BNM::Field<{0}> field = StaticClass().GetField(\"{1}\");", fieldType, fieldName));
-                    WriteIndented("\tfield.SetInstance((BNM::IL2CPP::Il2CppObject*)this);");
-                    WriteIndented("\tfield.Set(value);");
+                    WriteIndented(string.Format("\tstatic BNM::Field<{0}> __bnm__field__ = StaticClass().GetField(\"{1}\");", fieldType, fieldName));
+                    WriteIndented("\t__bnm__field__.SetInstance((BNM::IL2CPP::Il2CppObject*)this);");
+                    WriteIndented("\t__bnm__field__.Set(value);");
                 }
                 WriteIndented("}");
             }
@@ -139,39 +139,41 @@ namespace Il2CppSDK
                     {
                         var paramType = Utils.Il2CppTypeToCppType(param.Type);
 
-                        if (param.HasParamDef)
-                        {
-                            if (param.ParamDef.IsOut)
-                            {
-                                paramType += "*";
-                            }
-                        }
+                        if (param.HasParamDef && param.ParamDef.IsOut)
+                            paramType += "*";
 
-                        if (param.Name.Equals("auto") || param.Name.Equals("register"))
-                            param.Name += "_";
+                        var originalName = param.Name;
+                        if (originalName == "auto" || originalName == "register")
+                            originalName += "_";
 
                         paramTypes.Add(paramType);
-                        paramNames.Add(param.Name);
-
-                        methodParams.Add(paramType + " " + Utils.FormatInvalidName(param.Name));
+                        paramNames.Add(originalName);
                     }
                 }
+
+                paramNames = Utils.MakeValidParams(paramNames.ToArray()).ToList();
+
+                for (int i = 0; i < paramNames.Count; i++)
+                {
+                    methodParams.Add(paramTypes[i] + " " + Utils.FormatInvalidName(paramNames[i]));
+                }
+
 
                 WriteIndented(string.Format("template <typename T = {0}>", methodType), true);
                 currentFile.WriteLine(string.Format(" {0}{1} {2}({3}) {{", (method.IsStatic ? "static " : ""), "T", Utils.FormatInvalidName(methodName), string.Join(", ", methodParams)));
                 if (!method.IsStatic)
                 {
-                    WriteIndented(string.Format("\tstatic BNM::Method<T> method = StaticClass().GetMethod(\"{0}\", {1});", method.Name, methodParams.Count));
+                    WriteIndented(string.Format("\tstatic BNM::Method<T> __bnm__method__ = StaticClass().GetMethod(\"{0}\", {1});", method.Name, methodParams.Count));
 
-                    WriteIndented("\treturn method[(BNM::IL2CPP::Il2CppObject*)this](", true);
+                    WriteIndented("\treturn __bnm__method__[(BNM::IL2CPP::Il2CppObject*)this](", true);
                     currentFile.Write(string.Join(", ", paramNames.Select(x => Utils.FormatInvalidName(x))));
                     currentFile.WriteLine(");");
                 }
                 else
                 {
-                    WriteIndented(string.Format("\tstatic BNM::Method<T> method = StaticClass().GetMethod(\"{0}\", {1});", method.Name, methodParams.Count));
+                    WriteIndented(string.Format("\tstatic BNM::Method<T> __bnm__method__ = StaticClass().GetMethod(\"{0}\", {1});", method.Name, methodParams.Count));
 
-                    WriteIndented("\treturn method(", true);
+                    WriteIndented("\treturn __bnm__method__(", true);
                     currentFile.Write(string.Join(", ", paramNames.Select(x => Utils.FormatInvalidName(x))));
                     currentFile.WriteLine(");");
                 }
@@ -224,8 +226,7 @@ namespace Il2CppSDK
             WriteIndented("{");
             indentLevel++;
 
-            WriteIndented("public:");
-            WriteIndented("");
+            if (!clazz.IsStruct()) WriteIndented("public:");
 
             WriteIndented("static BNM::Class StaticClass() {");
             WriteIndented(string.Format("\treturn BNM::Class(\"{0}\", \"{1}\", BNM::Image(\"{2}\"));", namespaze, className, module.Name));
@@ -238,7 +239,7 @@ namespace Il2CppSDK
             WriteIndented("");
 
             indentLevel--;
-            WriteIndented("}");
+            WriteIndented("};");
 
             for (int i = 0; i < indentLevel; i++)
             {
