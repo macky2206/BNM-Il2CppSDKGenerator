@@ -18,9 +18,35 @@ namespace Il2CppSDK
         static string OUTPUT_DIR = "SDK";
         static ModuleDefMD currentModule = null;
         static StreamWriter currentFile = null;
+        static int indentLevel = 0;
 
         static void ParseFields(TypeDef clazz)
         {
+            if (clazz.IsStruct())
+            {
+                foreach (var rid in currentModule.Metadata.GetFieldRidList(clazz.Rid))
+                {
+                    var field = currentModule.ResolveField(rid);
+
+                    if (field == null)
+                    {
+                        continue;
+                    }
+
+                    var fieldName = field.Name.Replace("::", "_").Replace("<", "$").Replace(">", "$").Replace("k__BackingField", "").Replace(".", "_").Replace("`", "_");
+
+                    if (fieldName.Equals("auto") || fieldName.Equals("register"))
+                        fieldName += "_";
+
+                    var fieldType = Utils.Il2CppTypeToCppType(field.FieldType);
+
+                    WriteIndented($"{(field.IsStatic ? "static " : "")}{fieldType} {Utils.FormatInvalidName(fieldName)};");
+                }
+
+                Console.WriteLine("[+] Class is a struct! Making normal setup");
+                return;
+            }
+
             foreach (var rid in currentModule.Metadata.GetFieldRidList(clazz.Rid))
             {
                 var field = currentModule.ResolveField(rid);
@@ -38,39 +64,44 @@ namespace Il2CppSDK
                 var fieldType = Utils.Il2CppTypeToCppType(field.FieldType);
 
                 //get
-                currentFile.Write(string.Format("\ttemplate <typename T = {0}>", fieldType));
+                WriteIndented(string.Format("template <typename T = {0}>", fieldType), true);
                 currentFile.WriteLine(string.Format(" {0}{1} {2}() {{", (field.IsStatic ? "static " : ""), "T", Utils.FormatInvalidName(fieldName)));
                 if (field.IsStatic)
                 {
-                    currentFile.WriteLine(string.Format("\t\tstatic BNM::Field<{0}> field = StaticClass().GetField(\"{1}\");", "T", fieldName));
-                    currentFile.WriteLine("\t\treturn field();");
+                    WriteIndented(string.Format("\tstatic BNM::Field<{0}> field = StaticClass().GetField(\"{1}\");", "T", fieldName));
+                    WriteIndented("\treturn field();");
                 }
                 else
                 {
-                    currentFile.WriteLine(string.Format("\t\tstatic BNM::Field<{0}> field = StaticClass().GetField(\"{1}\");", "T", fieldName));
-                    currentFile.WriteLine("\t\tfield.SetInstance((BNM::IL2CPP::Il2CppObject*)this);");
-                    currentFile.WriteLine("\t\treturn field();");
+                    WriteIndented(string.Format("\tstatic BNM::Field<{0}> field = StaticClass().GetField(\"{1}\");", "T", fieldName));
+                    WriteIndented("\tfield.SetInstance((BNM::IL2CPP::Il2CppObject*)this);");
+                    WriteIndented("\treturn field();");
                 }
-                currentFile.WriteLine("\t}");
+                WriteIndented("}");
 
                 // set
-                currentFile.WriteLine(string.Format("\t{0}{1} set_{2}({3}) {{", (field.IsStatic ? "static " : ""), "void", Utils.FormatInvalidName(fieldName), fieldType + " value"));
+                WriteIndented(string.Format("{0}{1} set_{2}({3}) {{", (field.IsStatic ? "static " : ""), "void", Utils.FormatInvalidName(fieldName), fieldType + " value"));
                 if (field.IsStatic)
                 {
-                    currentFile.WriteLine(string.Format("\t\tstatic BNM::Field<{0}> field = StaticClass().GetField(\"{1}\");", fieldType, fieldName));
-                    currentFile.WriteLine("\t\tfield.Set(value);");
+                    WriteIndented(string.Format("\tstatic BNM::Field<{0}> field = StaticClass().GetField(\"{1}\");", fieldType, fieldName));
+                    WriteIndented("\tfield.Set(value);");
                 }
                 else
                 {
-                    currentFile.WriteLine(string.Format("\t\tstatic BNM::Field<{0}> field = StaticClass().GetField(\"{1}\");", fieldType, fieldName));
-                    currentFile.WriteLine("\t\tfield.SetInstance((BNM::IL2CPP::Il2CppObject*)this);");
-                    currentFile.WriteLine("\t\tfield.Set(value);");
+                    WriteIndented(string.Format("\tstatic BNM::Field<{0}> field = StaticClass().GetField(\"{1}\");", fieldType, fieldName));
+                    WriteIndented("\tfield.SetInstance((BNM::IL2CPP::Il2CppObject*)this);");
+                    WriteIndented("\tfield.Set(value);");
                 }
-                currentFile.WriteLine("\t}");
+                WriteIndented("}");
             }
         }
         static void ParseMethods(TypeDef clazz)
         {
+            if (clazz.IsStruct())
+            {
+                return;
+            }
+
             foreach (var rid in currentModule.Metadata.GetMethodRidList(clazz.Rid))
             {
                 var method = currentModule.ResolveMethod(rid);
@@ -88,7 +119,7 @@ namespace Il2CppSDK
                 var methodType = Utils.Il2CppTypeToCppType(method.ReturnType);
 
                 string methodKey = clazz.Namespace + clazz.FullName + method.Name;
-                
+
                 if (m_DuplicateMethodTable.ContainsKey(methodKey))
                 {
                     methodName += "_" + m_DuplicateMethodTable[methodKey]++;
@@ -126,28 +157,37 @@ namespace Il2CppSDK
                     }
                 }
 
-                currentFile.Write(string.Format("\ttemplate <typename T = {0}>", methodType));
+                WriteIndented(string.Format("template <typename T = {0}>", methodType), true);
                 currentFile.WriteLine(string.Format(" {0}{1} {2}({3}) {{", (method.IsStatic ? "static " : ""), "T", Utils.FormatInvalidName(methodName), string.Join(", ", methodParams)));
                 if (!method.IsStatic)
                 {
-                    currentFile.WriteLine("\t\tstatic BNM::Method<T> method = StaticClass().GetMethod(\"{0}\", {1});", method.Name, methodParams.Count);
+                    WriteIndented(string.Format("\tstatic BNM::Method<T> method = StaticClass().GetMethod(\"{0}\", {1});", method.Name, methodParams.Count));
 
-                    currentFile.Write("\t\treturn method[(BNM::IL2CPP::Il2CppObject*)this](");
+                    WriteIndented("\treturn method[(BNM::IL2CPP::Il2CppObject*)this](", true);
                     currentFile.Write(string.Join(", ", paramNames.Select(x => Utils.FormatInvalidName(x))));
                     currentFile.WriteLine(");");
                 }
                 else
                 {
-                    currentFile.WriteLine("\t\tstatic BNM::Method<T> method = StaticClass().GetMethod(\"{0}\", {1});", method.Name, methodParams.Count);
+                    WriteIndented(string.Format("\tstatic BNM::Method<T> method = StaticClass().GetMethod(\"{0}\", {1});", method.Name, methodParams.Count));
 
-                    currentFile.Write("\t\treturn method(");
+                    WriteIndented("\treturn method(", true);
                     currentFile.Write(string.Join(", ", paramNames.Select(x => Utils.FormatInvalidName(x))));
                     currentFile.WriteLine(");");
                 }
-                currentFile.WriteLine("\t}");
+                WriteIndented("}");
 
             }
         }
+        
+        static void WriteIndented(string line, bool isWrite = false)
+        {
+            if (isWrite)
+                currentFile.Write(new string('\t', indentLevel) + line);
+            else
+                currentFile.WriteLine(new string('\t', indentLevel) + line);
+        }
+
         static void ParseClass(TypeDef clazz)
         {
             var module = clazz.Module;
@@ -158,56 +198,58 @@ namespace Il2CppSDK
 
             currentFile.WriteLine("#pragma once");
             currentFile.WriteLine("#include <BNMIncludes.hpp>");
+            currentFile.WriteLine();
 
-            int namespaceCount = 0;
+            indentLevel = 0;
 
-            currentFile.WriteLine("namespace " + clazz.Module.Assembly.Name.Replace(".dll", "").Replace(".", "").Replace("-", "_") + " {");
-            namespaceCount++; // this is so lazy lol but i hope it fixes | holy effort twin
-            string[] nameSpaceSplit = namespaze.ToString().Split(".");
-            if (nameSpaceSplit.Length == 0)
+            WriteIndented("namespace " + clazz.Module.Assembly.Name.Replace(".dll", "").Replace(".", "").Replace("-", "_") + " {");
+            indentLevel++;
+
+            string[] nameSpaceSplit = namespaze.ToString().Split('.');
+            if (nameSpaceSplit.Length == 0 || (nameSpaceSplit.Length == 1 && nameSpaceSplit[0] == ""))
             {
-                currentFile.WriteLine("namespace GlobalNamespace {");
+                WriteIndented("namespace GlobalNamespace {");
+                indentLevel++;
             }
             else
             {
-                for (int i = 0; i < nameSpaceSplit.Length; ++i)
+                foreach (var part in nameSpaceSplit)
                 {
-                    currentFile.WriteLine("namespace " + nameSpaceSplit[i] + " {");
-                    namespaceCount++;
+                    WriteIndented("namespace " + part + " {");
+                    indentLevel++;
                 }
             }
 
-            currentFile.WriteLine();
+            WriteIndented((clazz.IsStruct() ? "struct " : "class ") + validClassname);
+            WriteIndented("{");
+            indentLevel++;
 
-            currentFile.WriteLine("class " + validClassname);
-            currentFile.WriteLine("{");
-            currentFile.WriteLine("public: ");
+            WriteIndented("public:");
+            WriteIndented("");
 
-            currentFile.WriteLine();
-
-            currentFile.WriteLine("\tstatic BNM::Class StaticClass() {");
-            currentFile.WriteLine(string.Format("\t\treturn BNM::Class(\"{0}\", \"{1}\", BNM::Image(\"{2}\"));", namespaze, className, module.Name));
-            currentFile.WriteLine("\t}");
-
-            currentFile.WriteLine();
+            WriteIndented("static BNM::Class StaticClass() {");
+            WriteIndented(string.Format("\treturn BNM::Class(\"{0}\", \"{1}\", BNM::Image(\"{2}\"));", namespaze, className, module.Name));
+            WriteIndented("}");
+            WriteIndented("");
 
             ParseFields(clazz);
-
-            currentFile.WriteLine();
-
+            WriteIndented("");
             ParseMethods(clazz);
+            WriteIndented("");
 
-            currentFile.WriteLine();
+            indentLevel--;
+            WriteIndented("}");
 
-            currentFile.WriteLine("};");
-            currentFile.WriteLine();
-
-            for (int i = 0; i < namespaceCount; ++i)
+            for (int i = 0; i < indentLevel; i++)
             {
-                currentFile.WriteLine("}");
+                indentLevel--;
+                WriteIndented("}");
             }
 
+            indentLevel = 0;
+            WriteIndented("}");
         }
+
         static void ParseClasses()
         {
             if (currentModule == null)

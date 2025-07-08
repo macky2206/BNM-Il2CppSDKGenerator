@@ -89,6 +89,7 @@ public static class Utils
             .Replace("-", "$")
             .Replace("`", "$")
             .Replace("=", "$")
+            .Replace("@", "$")
             .Trim();
         if (string.IsNullOrEmpty(str))
             return "_";
@@ -97,6 +98,11 @@ public static class Utils
             str = "_" + str;
 
         return str;
+    }
+
+    public static bool IsStruct(this TypeDef type)
+    {
+        return type.IsValueType && !type.IsEnum;
     }
 
 }
