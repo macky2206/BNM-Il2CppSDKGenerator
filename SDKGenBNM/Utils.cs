@@ -12,9 +12,9 @@ public static class Utils
     {
         return char.IsDigit(str[0]);
     }
-    public static string Il2CppTypeToCppType(TypeSig? type, TypeDef? parentType = null)
+   public static string Il2CppTypeToCppType(TypeSig? type, TypeDef? parentType = null)
     {
-        if (type == null) 
+        if (type == null)
             return "BNM::IL2CPP::Il2CppObject*";
 
         if (type.IsPointer)
@@ -24,7 +24,9 @@ public static class Utils
             return "void* /*GENERICTYPE*/";
 
         if (type.ContainsGenericParameter)
-                return FormatIl2CppGeneric(type);
+            return FormatIl2CppGeneric(type);
+
+        bool isArray = type.FullName.Contains("[]");
 
         TypeDef? tdef = type.TryGetTypeDef();
         bool isEnum = tdef?.IsEnum ?? false;
@@ -61,19 +63,20 @@ public static class Utils
             "UnityEngine.Color32" => "BNM::Structures::Unity::Color32",
             "UnityEngine.Ray" => "BNM::Structures::Unity::Ray",
             "UnityEngine.RaycastHit" => "BNM::Structures::Unity::RaycastHit",
-            _ => isEnum ? GetEnumType(tdef!) : "BNM::IL2CPP::Il2CppObject*"
+            _ => isEnum && tdef != null ? GetEnumType(tdef) : "BNM::IL2CPP::Il2CppObject*"
         };
 
         if (parentType != null && parentType.FullName == type.FullName)
         {
-            result = type.Module.Assembly.Name.Replace(".dll", "").Replace(".", "").Replace("-", "_")
-                + "::" + type.FullName.Replace(".", "::") + "*";
+            string ns = string.IsNullOrEmpty(type.Namespace) ? "GlobalNamespace::" : type.Namespace.Replace(".", "::") + "::";
+            string assembly = type.Module.Assembly.Name.Replace(".dll", "").Replace(".", "").Replace("-", "_");
+
+            result = $"{assembly}::{ns}{FormatInvalidName(type.GetName())}*";
         }
 
-        if (type.FullName.Contains("[]"))
-        {
-            result = "BNM::Structures::Mono::Array<" + result + ">*";
-        }
+
+        if (isArray)
+            result = $"BNM::Structures::Mono::Array<{result}>*";
 
         return result;
     }

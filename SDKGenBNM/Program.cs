@@ -251,7 +251,7 @@ namespace Il2CppSDK
                 {
                     var field = enumFields[i];
                     var comma = i == enumFields.Count - 1 ? "" : ",";
-                    WriteIndented($"{field.Name} = {field.Constant.Value}{comma}");
+                    WriteIndented($"{Utils.FormatInvalidName(field.Name)} = {field.Constant.Value}{comma}");
                 }
 
                 indentLevel--;
