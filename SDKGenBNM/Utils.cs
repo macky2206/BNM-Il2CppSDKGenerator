@@ -11,12 +11,15 @@ public static class Utils
         return char.IsDigit(str[0]);
     }
 
-    public static string Il2CppTypeToCppType(TypeSig type)
+    public static string Il2CppTypeToCppType(TypeDef? type, TypeDef? parentType = null)
     {
-        if (type.IsGenericInstanceType)
-        {
-            return FormatIl2CppGeneric(type);
-        }
+        if (type == null)
+            return "void"; 
+
+        if (type.ContainsGenericParameter)
+            return FormatIl2CppGeneric(type.ToTypeSig());
+
+        bool isEnum = type.IsEnum;
 
         string result = type.FullName switch
         {
@@ -24,7 +27,7 @@ public static class Utils
             "System.UInt8" => "uint8_t",
             "System.Int16" => "int16_t",
             "System.UInt16" => "uint16_t",
-            "System.Int32" => "int32_t",
+            "System.Int32" => "int",
             "System.UInt32" => "uint32_t",
             "System.Int64" => "int64_t",
             "System.UInt64" => "uint64_t",
@@ -40,9 +43,17 @@ public static class Utils
             "UnityEngine.Vector3" => "BNM::Structures::Unity::Vector3",
             "UnityEngine.Quaternion" => "BNM::Structures::Unity::Quaternion",
             "UnityEngine.Rect" => "BNM::Structures::Unity::Rect",
+            "System.Type" => "BNM::MonoType*",
             "System.Void" => "void",
-            _ => "BNM::IL2CPP::Il2CppObject*"
+
+            _ => isEnum ? GetEnumType(type) : "BNM::IL2CPP::Il2CppObject*"
         };
+
+        if (parentType != null && parentType.FullName == type.FullName)
+        {
+            result = type.Module.Assembly.Name.Replace(".dll", "").Replace(".", "").Replace("-", "_")
+                + "::" + type.FullName.Replace(".", "::") + "*";
+        }
 
         if (type.FullName.Contains("[]"))
         {
@@ -51,7 +62,15 @@ public static class Utils
 
         return result;
     }
+    public static string GetEnumType(TypeDef clazz)
+    {
+        string type = "int";
+        var ff = clazz.Fields.FirstOrDefault(x => x.FieldType != null);
+        if (ff != null)
+            type = Utils.Il2CppTypeToCppType(ff.FieldType.ToTypeDefOrRef().ResolveTypeDef());
 
+        return type;
+    }
     public static string FormatIl2CppGeneric(TypeSig type)
     {
         string result = "";
@@ -75,13 +94,13 @@ public static class Utils
             {
                 args.Add(FormatIl2CppGeneric(arg));
             }
-            else args.Add(Il2CppTypeToCppType(arg));
+            else args.Add(Il2CppTypeToCppType(arg.ToTypeDefOrRef().ResolveTypeDef()));
         }
         result += string.Join(", ", args.ToArray());
         result += ">*";
         return result;
     }
-
+    
     public static bool IsKeyword(string str)
     {
         string[] keywords = [

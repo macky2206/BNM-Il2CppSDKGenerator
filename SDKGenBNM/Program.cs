@@ -38,12 +38,10 @@ namespace Il2CppSDK
                     if (fieldName.Equals("auto") || fieldName.Equals("register"))
                         fieldName += "_";
 
-                    var fieldType = Utils.Il2CppTypeToCppType(field.FieldType);
+                    var fieldType = Utils.Il2CppTypeToCppType(field.FieldSig.GetFieldType().ToTypeDefOrRef().ResolveTypeDef());
 
                     WriteIndented($"{(field.IsStatic ? "static " : "")}{fieldType} {Utils.FormatInvalidName(fieldName)};");
                 }
-
-                Console.WriteLine("[+] Class is a struct! Making normal setup");
                 return;
             }
 
@@ -61,7 +59,7 @@ namespace Il2CppSDK
                 if (fieldName.Equals("auto") || fieldName.Equals("register"))
                     fieldName += "_";
 
-                var fieldType = Utils.Il2CppTypeToCppType(field.FieldType);
+                var fieldType = Utils.Il2CppTypeToCppType(field.FieldType.ToTypeDefOrRef().ResolveTypeDef(), clazz);
 
                 //get
                 WriteIndented(string.Format("template <typename T = {0}>", fieldType), true);
@@ -116,7 +114,7 @@ namespace Il2CppSDK
                 if (methodName.Equals("auto") || methodName.Equals("register"))
                     methodName += "_";
 
-                var methodType = Utils.Il2CppTypeToCppType(method.ReturnType);
+                var methodType = Utils.Il2CppTypeToCppType(method.ReturnType.ToTypeDefOrRef().ResolveTypeDef());
 
                 string methodKey = clazz.Namespace + clazz.FullName + method.Name;
 
@@ -137,7 +135,13 @@ namespace Il2CppSDK
                 {
                     if (param.IsNormalMethodParameter)
                     {
-                        var paramType = Utils.Il2CppTypeToCppType(param.Type);
+                        var paramTypeDef = param.Type.ToTypeDefOrRef().ResolveTypeDef();
+                        var paramType = Utils.Il2CppTypeToCppType(paramTypeDef, clazz);
+                        
+                        if (paramTypeDef != null && paramTypeDef.IsEnum)
+                        {
+                            paramType = Utils.GetEnumType(paramTypeDef);
+                        }
 
                         if (param.HasParamDef && param.ParamDef.IsOut)
                             paramType += "*";
@@ -221,6 +225,42 @@ namespace Il2CppSDK
                     indentLevel++;
                 }
             }
+
+            if (clazz.IsEnum)
+            {
+                string type = Utils.GetEnumType(clazz);
+
+                WriteIndented($"enum class {validClassname} : {type}");
+                WriteIndented("{");
+                indentLevel++;
+
+                var enumFields = clazz.Fields
+                    .Where(f => f.IsLiteral && f.Constant?.Value != null && f.IsStatic)
+                    .ToList();
+
+                for (int i = 0; i < enumFields.Count; i++)
+                {
+                    var field = enumFields[i];
+                    var comma = i == enumFields.Count - 1 ? "" : ",";
+                    WriteIndented($"{field.Name} = {field.Constant.Value}{comma}");
+                }
+
+                indentLevel--;
+                WriteIndented("};");
+
+                for (int i = 0; i < indentLevel; i++)
+                {
+                    indentLevel--;
+                    WriteIndented("}");
+                }
+
+                indentLevel--;
+                WriteIndented("}");
+
+                return;
+            }
+
+
 
             WriteIndented((clazz.IsStruct() ? "struct " : "class ") + validClassname, true);
 
