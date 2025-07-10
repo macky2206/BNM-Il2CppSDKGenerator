@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using dnlib;
 using dnlib.DotNet;
 using System.Text.RegularExpressions;
+using System.Linq;
+using System.ComponentModel;
 
 public static class Utils
 {
@@ -10,43 +12,56 @@ public static class Utils
     {
         return char.IsDigit(str[0]);
     }
-
-    public static string Il2CppTypeToCppType(TypeDef? type, TypeDef? parentType = null)
+    public static string Il2CppTypeToCppType(TypeSig? type, TypeDef? parentType = null)
     {
-        if (type == null)
-            return "void"; 
+        if (type == null) 
+            return "BNM::IL2CPP::Il2CppObject*";
+
+        if (type.IsPointer)
+            return "void* /*POINTER*/";
+
+        if (type.IsGenericInstanceType)
+            return "void* /*GENERICTYPE*/";
 
         if (type.ContainsGenericParameter)
-            return FormatIl2CppGeneric(type.ToTypeSig());
+                return FormatIl2CppGeneric(type);
 
-        bool isEnum = type.IsEnum;
+        TypeDef? tdef = type.TryGetTypeDef();
+        bool isEnum = tdef?.IsEnum ?? false;
 
         string result = type.FullName switch
         {
+            "System.Void" => "void",
             "System.Int8" => "int8_t",
             "System.UInt8" => "uint8_t",
-            "System.Int16" => "int16_t",
-            "System.UInt16" => "uint16_t",
+            "System.Int16" => "short",
             "System.Int32" => "int",
-            "System.UInt32" => "uint32_t",
             "System.Int64" => "int64_t",
-            "System.UInt64" => "uint64_t",
             "System.Single" => "float",
             "System.Double" => "double",
             "System.Boolean" => "bool",
-            "System.Decimal" => "BNM::Types::decimal",
             "System.Char" => "char",
+            "System.UInt16" => "BNM::Types::ushort",
+            "System.UInt32" => "BNM::Types::uint",
+            "System.UInt64" => "BNM::Types::ulong",
+            "System.Decimal" => "BNM::Types::decimal",
             "System.Byte" => "BNM::Types::byte",
             "System.SByte" => "BNM::Types::sbyte",
             "System.String" => "BNM::Structures::Mono::String*",
+            "System.Type" => "BNM::MonoType*",
+            "System.IntPtr" => "BNM::Types::nuint",
+            "UnityEngine.Object" => "BNM::UnityEngine::Object*",
+            "UnityEngine.MonoBehaviour" => "BNM::UnityEngine::MonoBehaviour*",
             "UnityEngine.Vector2" => "BNM::Structures::Unity::Vector2",
             "UnityEngine.Vector3" => "BNM::Structures::Unity::Vector3",
+            "UnityEngine.Vector4" => "BNM::Structures::Unity::Vector4",
             "UnityEngine.Quaternion" => "BNM::Structures::Unity::Quaternion",
             "UnityEngine.Rect" => "BNM::Structures::Unity::Rect",
-            "System.Type" => "BNM::MonoType*",
-            "System.Void" => "void",
-
-            _ => isEnum ? GetEnumType(type) : "BNM::IL2CPP::Il2CppObject*"
+            "UnityEngine.Color" => "BNM::Structures::Unity::Color",
+            "UnityEngine.Color32" => "BNM::Structures::Unity::Color32",
+            "UnityEngine.Ray" => "BNM::Structures::Unity::Ray",
+            "UnityEngine.RaycastHit" => "BNM::Structures::Unity::RaycastHit",
+            _ => isEnum ? GetEnumType(tdef!) : "BNM::IL2CPP::Il2CppObject*"
         };
 
         if (parentType != null && parentType.FullName == type.FullName)
@@ -62,24 +77,33 @@ public static class Utils
 
         return result;
     }
+
     public static string GetEnumType(TypeDef clazz)
     {
         string type = "int";
-        var ff = clazz.Fields.FirstOrDefault(x => x.FieldType != null);
+        var ff = clazz.Fields.FirstOrDefault(x => x.FieldType != null && x.Name == "value__");
         if (ff != null)
-            type = Utils.Il2CppTypeToCppType(ff.FieldType.ToTypeDefOrRef().ResolveTypeDef());
-
+        {
+            type = Il2CppTypeToCppType(ff.FieldType);
+        }
         return type;
     }
-    public static string FormatIl2CppGeneric(TypeSig type)
+
+    public static string FormatIl2CppGeneric(TypeSig typeSig)
     {
+        if (!typeSig.IsGenericInstanceType)
+            return "void*";
+
+        var genericInstSig = typeSig.ToGenericInstSig();
+        var typeName = genericInstSig.GenericType.TypeName;
+
         string result = "";
 
-        if (type.GetName().StartsWith("List"))
+        if (typeName.StartsWith("List"))
         {
             result = "BNM::Structures::Mono::List<";
         }
-        else if (type.GetName().StartsWith("Dictionary"))
+        else if (typeName.StartsWith("Dictionary"))
         {
             result = "BNM::Structures::Mono::Dictionary<";
         }
@@ -87,16 +111,14 @@ public static class Utils
         {
             return "void*";
         }
+
         List<string> args = new List<string>();
-        foreach (var arg in type.ToGenericInstSig().GenericArguments)
+        foreach (var arg in genericInstSig.GenericArguments)
         {
-            if (arg.IsGenericInstanceType)
-            {
-                args.Add(FormatIl2CppGeneric(arg));
-            }
-            else args.Add(Il2CppTypeToCppType(arg.ToTypeDefOrRef().ResolveTypeDef()));
+            args.Add(Il2CppTypeToCppType(arg));
         }
-        result += string.Join(", ", args.ToArray());
+
+        result += string.Join(", ", args);
         result += ">*";
         return result;
     }
@@ -150,7 +172,6 @@ public static class Utils
 
         return results.ToArray();
     }
-        
 
     public static string FormatInvalidName(string className)
     {
@@ -163,13 +184,14 @@ public static class Utils
             .Replace("=", "$")
             .Replace("@", "$")
             .Trim();
+        
         if (string.IsNullOrEmpty(str))
             return "_";
 
         if (StartsWithNumber(str))
             str = "_" + str;
 
-        if (IsKeyword(className))
+        if (IsKeyword(str))
             str = "$" + str;
 
         return str;
@@ -179,5 +201,4 @@ public static class Utils
     {
         return type.IsValueType && !type.IsEnum;
     }
-
 }
