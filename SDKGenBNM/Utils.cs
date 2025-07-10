@@ -41,11 +41,13 @@ public static class Utils
             "UnityEngine.Quaternion" => "BNM::Structures::Unity::Quaternion",
             "UnityEngine.Rect" => "BNM::Structures::Unity::Rect",
             "System.Void" => "void",
-            _ => "void*"
+            _ => "BNM::IL2CPP::Il2CppObject*"
         };
 
         if (type.FullName.Contains("[]"))
+        {
             result = "BNM::Structures::Mono::Array<" + result + ">*";
+        }
 
         return result;
     }

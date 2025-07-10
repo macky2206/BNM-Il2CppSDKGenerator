@@ -222,7 +222,31 @@ namespace Il2CppSDK
                 }
             }
 
-            WriteIndented((clazz.IsStruct() ? "struct " : "class ") + validClassname);
+            WriteIndented((clazz.IsStruct() ? "struct " : "class ") + validClassname, true);
+
+            if (!clazz.IsStruct())
+            {
+                if (clazz.BaseType != null)
+                {
+                    if (clazz.BaseType.FullName == "UnityEngine.MonoBehaviour")
+                    {
+                        currentFile.WriteLine(" : public BNM::UnityEngine::MonoBehaviour");
+                    }
+                    else
+                    {
+                        currentFile.WriteLine(" : public BNM::IL2CPP::Il2CppObject");
+                    }
+                }
+                else
+                {
+                    currentFile.WriteLine();
+                }
+            }
+            else
+            {
+                currentFile.WriteLine();
+            }
+
             WriteIndented("{");
             indentLevel++;
 
