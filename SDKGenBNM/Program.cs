@@ -114,7 +114,7 @@ namespace Il2CppSDK
                 if (methodName.Equals("auto") || methodName.Equals("register"))
                     methodName += "_";
 
-                var methodType = Utils.Il2CppTypeToCppType(method.ReturnType.ToTypeDefOrRef().ResolveTypeDef());
+                var methodType = Utils.Il2CppTypeToCppType(method.ReturnType.ToTypeDefOrRef().ResolveTypeDef(), clazz);
 
                 string methodKey = clazz.Namespace + clazz.FullName + method.Name;
 
