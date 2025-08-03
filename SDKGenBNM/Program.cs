@@ -171,26 +171,55 @@ namespace Il2CppSDK
                     methodParams.Add(paramTypes[i] + " " + Utils.FormatInvalidName(paramNames[i]));
                 }
 
-
                 WriteIndented(string.Format("/* @brief Orig Type: {0} */", method.ReturnType.FullName));
                 WriteIndented(string.Format("template <typename T = {0}>", methodType), true);
-                currentFile.WriteLine(string.Format(" {0}{1} {2}({3}) {{", (method.IsStatic ? "static " : ""), "T", Utils.FormatInvalidName(methodName), string.Join(", ", methodParams)));
-                if (!method.IsStatic)
-                {
-                    WriteIndented(string.Format("\tstatic BNM::Method<T> __bnm__method__ = StaticClass().GetMethod(\"{0}\", {1});", method.Name, methodParams.Count));
+                currentFile.WriteLine(string.Format(" {0}{1} {2}({3}) {{",
+                    method.IsStatic ? "static " : "", "T", Utils.FormatInvalidName(methodName), string.Join(", ", methodParams)));
 
-                    WriteIndented("\treturn __bnm__method__[(BNM::IL2CPP::Il2CppObject*)this](", true);
-                    currentFile.Write(string.Join(", ", paramNames.Select(x => Utils.FormatInvalidName(x))));
-                    currentFile.WriteLine(");");
+                if ((method.Attributes & MethodAttributes.PinvokeImpl) != 0 || (method.ImplAttributes & MethodImplAttributes.InternalCall) != 0)
+                {
+                    string paramList = string.Join(", ", paramTypes);
+                    string paramCall = string.Join(", ", paramNames.Select(Utils.FormatInvalidName));
+
+                    if (!method.IsStatic)
+                    {
+                        if (!string.IsNullOrWhiteSpace(paramList))
+                            paramList = "BNM::IL2CPP::Il2CppObject*, " + paramList;
+                        else
+                            paramList = "BNM::IL2CPP::Il2CppObject*";
+
+                        if (!string.IsNullOrWhiteSpace(paramCall))
+                            paramCall = "(BNM::IL2CPP::Il2CppObject*)this, " + paramCall;
+                        else
+                            paramCall = "(BNM::IL2CPP::Il2CppObject*)this";
+                    }
+
+                    WriteIndented(string.Format("\tstatic auto __bnm__method__ = ({0}(*)({1}))BNM::GetExternMethod(\"{2}::{3}::{4}\");",
+                        "T", paramList, clazz.Namespace, clazz.Name, method.Name));
+
+                    WriteIndented(string.Format("\treturn (T)__bnm__method__({0});", paramCall));
                 }
                 else
                 {
-                    WriteIndented(string.Format("\tstatic BNM::Method<T> __bnm__method__ = StaticClass().GetMethod(\"{0}\", {1});", method.Name, methodParams.Count));
+                    if (!method.IsStatic)
+                    {
+                        WriteIndented(string.Format("\tstatic BNM::Method<T> __bnm__method__ = StaticClass().GetMethod(\"{0}\", {1});", method.Name, methodParams.Count));
 
-                    WriteIndented("\treturn __bnm__method__(", true);
-                    currentFile.Write(string.Join(", ", paramNames.Select(x => Utils.FormatInvalidName(x))));
-                    currentFile.WriteLine(");");
+                        WriteIndented("\treturn __bnm__method__[(BNM::IL2CPP::Il2CppObject*)this](", true);
+                        currentFile.Write(string.Join(", ", paramNames.Select(x => Utils.FormatInvalidName(x))));
+                        currentFile.WriteLine(");");
+                    }
+                    else
+                    {
+                        WriteIndented(string.Format("\tstatic BNM::Method<T> __bnm__method__ = StaticClass().GetMethod(\"{0}\", {1});", method.Name, methodParams.Count));
+
+                        WriteIndented("\treturn __bnm__method__(", true);
+                        currentFile.Write(string.Join(", ", paramNames.Select(x => Utils.FormatInvalidName(x))));
+                        currentFile.WriteLine(");");
+                    }
                 }
+
+                
                 WriteIndented("}");
             }
         }
@@ -202,7 +231,6 @@ namespace Il2CppSDK
             else
                 currentFile.WriteLine(new string('\t', indentLevel) + line);
         }
-
         static void ParseClass(TypeDef clazz)
         {
             var module = clazz.Module;
@@ -215,10 +243,19 @@ namespace Il2CppSDK
             currentFile.WriteLine("#include <BNMIncludes.hpp>");
             currentFile.WriteLine();
 
-            indentLevel = 0;
+            if (clazz.IsEnum)
+            {
+                var enumFields = clazz.Fields
+                    .Where(f => f.IsLiteral && f.Constant?.Value != null && f.IsStatic)
+                    .ToList();
 
-            WriteIndented("namespace " + clazz.Module.Assembly.Name.Replace(".dll", "").Replace(".", "").Replace("-", "_") + " {");
-            indentLevel++;
+                for (int i = 0; i < enumFields.Count; i++)
+                {
+                    currentFile.WriteLine("#undef " + Utils.FormatInvalidName(enumFields[i].Name));
+                }
+            }
+
+            indentLevel = 0;
 
             string[] nameSpaceSplit = namespaze.ToString().Split('.');
             if (nameSpaceSplit.Length == 0 || (nameSpaceSplit.Length == 1 && nameSpaceSplit[0] == ""))
@@ -257,14 +294,11 @@ namespace Il2CppSDK
                 indentLevel--;
                 WriteIndented("};");
 
-                for (int i = 0; i < indentLevel; i++)
+                while (indentLevel > 0)
                 {
                     indentLevel--;
                     WriteIndented("}");
                 }
-
-                indentLevel--;
-                WriteIndented("}");
 
                 return;
             }
@@ -323,15 +357,13 @@ namespace Il2CppSDK
             indentLevel--;
             WriteIndented("};");
 
-            for (int i = 0; i < indentLevel; i++)
+            while (indentLevel > 0)
             {
                 indentLevel--;
                 WriteIndented("}");
             }
-
-            indentLevel = 0;
-            WriteIndented("}");
         }
+
 
         static void ParseClasses()
         {
@@ -352,7 +384,6 @@ namespace Il2CppSDK
                 var validClassname = Utils.FormatInvalidName(className);
 
                 string outputPath = OUTPUT_DIR;
-                outputPath += "/" + module.Name;
 
                 if (!Directory.Exists(outputPath))
                     Directory.CreateDirectory(outputPath);
@@ -392,7 +423,7 @@ namespace Il2CppSDK
             ModuleContext modCtx = ModuleDef.CreateModuleContext();
             currentModule = ModuleDefMD.Load(moduleFile, modCtx);
 
-            string moduleOutput = OUTPUT_DIR + "/" + currentModule.Name;
+            string moduleOutput = OUTPUT_DIR;
 
             if (!Directory.Exists(moduleOutput))
                 Directory.CreateDirectory(moduleOutput);

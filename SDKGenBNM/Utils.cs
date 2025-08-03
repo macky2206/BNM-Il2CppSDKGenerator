@@ -69,9 +69,8 @@ public static class Utils
         if (parentType != null && parentType.FullName == type.FullName)
         {
             string ns = string.IsNullOrEmpty(type.Namespace) ? "GlobalNamespace::" : type.Namespace.Replace(".", "::") + "::";
-            string assembly = type.Module.Assembly.Name.Replace(".dll", "").Replace(".", "").Replace("-", "_");
 
-            result = $"{assembly}::{ns}{FormatInvalidName(type.GetName())}*";
+            result = $"{ns}{FormatInvalidName(type.GetName())}*";
         }
 
 
@@ -186,6 +185,12 @@ public static class Utils
             .Replace("`", "$")
             .Replace("=", "$")
             .Replace("@", "$")
+            .Replace("[]", "")
+            .Replace(",", "")
+            .Replace("{", "$")
+            .Replace("}", "$")
+            .Replace("(", "$")
+            .Replace(")", "$")
             .Trim();
         
         if (string.IsNullOrEmpty(str))
