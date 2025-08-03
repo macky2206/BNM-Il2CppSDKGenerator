@@ -18,16 +18,16 @@ Please read how to Initialize Il2Cpp Functions first before using any of the SDK
 
 **Example:**
 ```c++
-#include "SDK/Assembly-CSharp.dll/GameBase.h"
-#include "SDK/Assembly-CSharp.dll/GameEngine.h"
+#include "SDK/GameBase.h"
+#include "SDK/GameEngine.h"
 
-#include "SDK/UnityEngine.dll/Includes/UnityEngine/Component.h"
-#include "SDK/UnityEngine.dll/Includes/UnityEngine/Transform.h"
-#include "SDK/UnityEngine.dll/Includes/UnityEngine/Screen.h"
-#include "SDK/UnityEngine.dll/Includes/UnityEngine/Camera.h"
-#include "SDK/UnityEngine.dll/Includes/UnityEngine/Physics.h"
-#include "SDK/UnityEngine.dll/Includes/UnityEngine/RaycastHit.h"
-#include "SDK/UnityEngine.dll/Includes/UnityEngine/Object.h"
+#include "SDK/Includes/UnityEngine/Component.h"
+#include "SDK/Includes/UnityEngine/Transform.h"
+#include "SDK/Includes/UnityEngine/Screen.h"
+#include "SDK/Includes/UnityEngine/Camera.h"
+#include "SDK/Includes/UnityEngine/Physics.h"
+#include "SDK/Includes/UnityEngine/RaycastHit.h"
+#include "SDK/Includes/UnityEngine/Object.h"
 
 using namespace UnityEngine;
 using namespace GameBase;
@@ -35,10 +35,10 @@ using namespace GameEngine;
 
 void PrintLocation()
 {
-  auto baseGame = GamePlay::get_Game<BaseGame *>();
+  auto baseGame = GamePlay::get_Game<BaseGame*>();
   if (baseGame) {
-    auto localPawn = GamePlay::get_LocalPawn<Pawn *>();
-    if(localPawn){
+    auto localPawn = GamePlay::get_LocalPawn<Pawn*>();
+      if(localPawn) {
       auto pawnTransform = ((Component *)localPawn)->get_transform<Transform *>();
       LOG("Local Pawn: %f %f %f", pawnTransform->get_position().x, pawnTransform->get_position().y, pawnTransform->get_position().z);
       localPawn->m_Health() = 9999.9f;
