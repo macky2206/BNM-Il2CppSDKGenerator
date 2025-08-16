@@ -2,3 +2,6 @@
 /SDKGenBNM/bin
 /SDKGenBNM/obj
 /SDKGenBNM/SDK
+SDK/
+DummyDll/
+dump.cs

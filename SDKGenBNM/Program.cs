@@ -442,16 +442,267 @@ namespace Il2CppSDK
             if (Directory.Exists(OUTPUT_DIR))
                 Directory.Delete(OUTPUT_DIR, true);
 
-            if (Directory.Exists(args[0]))
+            string inputPath = args[0];
+            if (inputPath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
             {
-                foreach(var file in Directory.GetFiles(args[0]))
+                ParseModule(inputPath);
+            }
+            else if (inputPath.EndsWith("dump.cs", StringComparison.OrdinalIgnoreCase) || inputPath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+            {
+                var namespaces = DumpCsParser.Parse(inputPath);
+                GenerateSdkFromDumpCs(namespaces);
+            }
+            else if (Directory.Exists(inputPath))
+            {
+                foreach(var file in Directory.GetFiles(inputPath))
                 {
-                    ParseModule(file);
+                    if (file.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                        ParseModule(file);
+                    else if (file.EndsWith("dump.cs", StringComparison.OrdinalIgnoreCase) || file.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var namespaces = DumpCsParser.Parse(file);
+                        GenerateSdkFromDumpCs(namespaces);
+                    }
                 }
             }
             else
             {
-                ParseModule(args[0]);
+                Console.WriteLine("Unsupported file type. Please provide a .dll or dump.cs file.");
+            }
+        }
+        // Generates SDK output from parsed dump.cs data
+        static void GenerateSdkFromDumpCs(Dictionary<string, DumpCsParser.Namespace> namespaces)
+        {
+            string outputDir = OUTPUT_DIR;
+            if (!Directory.Exists(outputDir))
+                Directory.CreateDirectory(outputDir);
+
+            string SanitizeFileName(string name)
+            {
+                var invalidChars = Path.GetInvalidFileNameChars();
+                foreach (var c in invalidChars)
+                {
+                    name = name.Replace(c, '_');
+                }
+                return name;
+            }
+
+            // Map dump.cs types to proper C++ types
+            string MapDumpTypeToCpp(string dumpType)
+            {
+                if (string.IsNullOrEmpty(dumpType)) return "BNM::IL2CPP::Il2CppObject*";
+                
+                return dumpType switch
+                {
+                    "int" => "int",
+                    "bool" => "bool",
+                    "float" => "float",
+                    "double" => "double",
+                    "void" => "void",
+                    "string" or "String" => "BNM::Structures::Mono::String*",
+                    "Vector2" => "BNM::Structures::Unity::Vector2",
+                    "Vector3" => "BNM::Structures::Unity::Vector3",
+                    "Vector4" => "BNM::Structures::Unity::Vector4",
+                    "Quaternion" => "BNM::Structures::Unity::Quaternion",
+                    "Rect" => "BNM::Structures::Unity::Rect",
+                    "Color" => "BNM::Structures::Unity::Color",
+                    "Color32" => "BNM::Structures::Unity::Color32",
+                    "GameObject" => "BNM::IL2CPP::Il2CppObject*",
+                    "Transform" => "BNM::IL2CPP::Il2CppObject*",
+                    "MonoBehaviour" => "BNM::UnityEngine::MonoBehaviour*",
+                    "Object" => "BNM::UnityEngine::Object*",
+                    var t when t.EndsWith("[]") => "BNM::Structures::Mono::Array<BNM::IL2CPP::Il2CppObject*>*",
+                    _ => "BNM::IL2CPP::Il2CppObject*"
+                };
+            }
+
+            // Output to SDK/Includes/ to match .dll output (OUTPUT_DIR is already "SDK")
+            string sdkOutputDir = Path.Combine(outputDir, "Includes");
+            if (!Directory.Exists(sdkOutputDir))
+                Directory.CreateDirectory(sdkOutputDir);
+
+            foreach (var ns in namespaces.Values)
+            {
+                foreach (var clazz in ns.Classes.Values)
+                {
+                    string classFile = Path.Combine(sdkOutputDir, SanitizeFileName(clazz.Name) + ".h");
+                    using (var sw = new StreamWriter(classFile))
+                    {
+                        // Match .dll output template exactly
+                        sw.WriteLine("#pragma once");
+                        sw.WriteLine("#include <BNMIncludes.hpp>");
+                        sw.WriteLine();
+                        sw.WriteLine("namespace GlobalNamespace {");
+                        sw.WriteLine($"\tclass {clazz.Name} : public BNM::UnityEngine::MonoBehaviour");
+                        sw.WriteLine("\t{");
+                        sw.WriteLine("\t\tpublic:");
+                        sw.WriteLine("\t\tstatic BNM::Class StaticClass() {…}");
+                        sw.WriteLine();
+                        
+                        // Generate field setters
+                        foreach (var field in clazz.Fields)
+                        {
+                            // Use proper C++ type mapping
+                            string cppType = MapDumpTypeToCpp(field.Type);
+                            sw.WriteLine($"\t\t/* @brief Orig Type: {field.Type} */");
+                            sw.WriteLine($"\t\ttemplate <typename T = {cppType}>");
+                            sw.WriteLine($"\t\t/* @param value Orig Type: {field.Type} */");
+                            sw.WriteLine($"\t\tvoid set_{field.Name}({cppType} value) {{…}}");
+                        }
+                        
+                        // Generate method signatures
+                        foreach (var method in clazz.Methods)
+                        {
+                            string returnType = MapDumpTypeToCpp(method.Type);
+                            string paramList = string.Join(", ", method.Params);
+                            sw.WriteLine($"\t\t/* @brief Orig Type: {method.Type} */");
+                            sw.WriteLine($"\t\ttemplate <typename T = {returnType}>");
+                            sw.WriteLine($"\t\t{returnType} {method.Name}({paramList}) {{…}}");
+                        }
+                        sw.WriteLine("\t};");
+                        sw.WriteLine("}");
+                    }
+                }
+            }
+            Console.WriteLine($"SDK generated from dump.cs in '{outputDir}'");
+        }
+
+        // Dump.cs parser mimicking DumpSDK Python logic
+        public static class DumpCsParser
+        {
+            public class Namespace
+            {
+                public string Name = string.Empty;
+                public Dictionary<string, Class> Classes = new();
+                public Dictionary<string, Struct> Structs = new();
+                public Dictionary<string, Enum> Enums = new();
+            }
+            public class Class
+            {
+                public string Name = string.Empty;
+                public List<Field> Fields = new();
+                public List<Method> Methods = new();
+            }
+            public class Struct : Class { }
+            public class Enum
+            {
+                public string Name = string.Empty;
+                public List<Field> Fields = new();
+            }
+            public class Field
+            {
+                public string Name = string.Empty;
+                public string? Type;
+                public string? Offset;
+            }
+            public class Method
+            {
+                public string Name = string.Empty;
+                public string Type = string.Empty;
+                public string? Offset;
+                public List<string> Modifiers = new();
+                public List<string> Params = new();
+            }
+
+            public static Dictionary<string, Namespace> Parse(string path)
+            {
+                var namespaces = new Dictionary<string, Namespace>();
+                Namespace? currentNamespace = null;
+                Class? currentClass = null;
+                Struct? currentStruct = null;
+                Enum? currentEnum = null;
+                string? lastOffset = null;
+                foreach (var line in File.ReadLines(path))
+                {
+                    var l = line.Trim();
+                    if (string.IsNullOrEmpty(l)) continue;
+                    // Namespace
+                    if (l.Contains("// Namespace: "))
+                    {
+                        var name = l.Split("Namespace: ")[1].Trim();
+                        if (string.IsNullOrEmpty(name)) name = "NO_NAME_SPACE";
+                        if (!namespaces.ContainsKey(name)) namespaces[name] = new Namespace { Name = name };
+                        currentNamespace = namespaces[name];
+                    }
+                    // Class
+                    else if (l.Contains(" class "))
+                    {
+                        var name = Regex.Match(l, @"class ([^:/{]+)").Groups[1].Value.Trim();
+                        if (currentNamespace == null) {
+                            if (!namespaces.ContainsKey("DefaultNamespace")) namespaces["DefaultNamespace"] = new Namespace { Name = "DefaultNamespace" };
+                            currentNamespace = namespaces["DefaultNamespace"];
+                        }
+                        currentClass = new Class { Name = name };
+                        currentNamespace.Classes[name] = currentClass;
+                    }
+                    // Struct
+                    else if (l.Contains(" struct "))
+                    {
+                        var name = Regex.Match(l, @"struct ([^:/{]+)").Groups[1].Value.Trim();
+                        if (currentNamespace == null) {
+                            if (!namespaces.ContainsKey("DefaultNamespace")) namespaces["DefaultNamespace"] = new Namespace { Name = "DefaultNamespace" };
+                            currentNamespace = namespaces["DefaultNamespace"];
+                        }
+                        currentStruct = new Struct { Name = name };
+                        currentNamespace.Structs[name] = currentStruct;
+                    }
+                    // Enum
+                    else if (l.Contains("enum "))
+                    {
+                        var name = Regex.Match(l, @"enum ([^ ]+)").Groups[1].Value.Trim();
+                        if (currentNamespace == null) {
+                            if (!namespaces.ContainsKey("DefaultNamespace")) namespaces["DefaultNamespace"] = new Namespace { Name = "DefaultNamespace" };
+                            currentNamespace = namespaces["DefaultNamespace"];
+                        }
+                        currentEnum = new Enum { Name = name };
+                        currentNamespace.Enums[name] = currentEnum;
+                    }
+                    // Offset
+                    else if (l.Contains("Offset: 0x"))
+                    {
+                        lastOffset = l.Split("Offset: ")[1].Split(' ')[0];
+                    }
+                    // Method
+                    else if (l.Contains(") { }"))
+                    {
+                        var methodMatch = Regex.Match(l, @"(public|private|protected|internal|static|virtual|override|abstract|sealed|extern|unsafe|new|readonly|volatile|partial|async|\s)+([\w<>]+) ([\w]+)\(([^)]*)\) { }");
+                        if (methodMatch.Success && currentClass != null)
+                        {
+                            var type = methodMatch.Groups[2].Value;
+                            var name = methodMatch.Groups[3].Value;
+                            var paramStr = methodMatch.Groups[4].Value;
+                            var paramList = paramStr.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+                            var modifiers = l.Split(type)[0].Trim().Split(' ');
+                            currentClass.Methods.Add(new Method
+                            {
+                                Name = name,
+                                Type = type,
+                                Offset = lastOffset,
+                                Modifiers = new List<string>(modifiers),
+                                Params = new List<string>(paramList)
+                            });
+                        }
+                    }
+                    // Field
+                    else if (l.Contains("; // 0x") && currentClass != null)
+                    {
+                        var parts = l.Split(';');
+                        var left = parts[0].Trim();
+                        var name = left.Split(' ')[^1];
+                        var type = left.Split(' ')[^2];
+                        var offset = "0x" + l.Split("; // 0x")[1].Split('\n')[0];
+                        currentClass.Fields.Add(new Field { Name = name, Type = type, Offset = offset });
+                    }
+                    // Enum Field
+                    else if ((l.Contains("public const") || l.Contains("private const")) && currentEnum != null)
+                    {
+                        var parts = l.Split(' ');
+                        var name = parts[^2];
+                        var value = parts[^1].TrimEnd(';');
+                        currentEnum.Fields.Add(new Field { Name = name, Type = null, Offset = value });
+                    }
+                }
+                return namespaces;
             }
         }
     }
