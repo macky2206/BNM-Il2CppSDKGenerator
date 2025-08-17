@@ -19,7 +19,8 @@ Done!
 5. Copy the result to your project
 6. Copy precoded Il2Cpp Headers to your project (And include it to your Android.mk or CMakeList.txt)
 
- Note: the generator works better with `dump.cs` files produced by [Zygisk-Il2cppDumper](https://github.com/Perfare/Zygisk-Il2CppDumper) (tested).
+ Note 1: the generator works better with `dump.cs` files produced by [Zygisk-Il2cppDumper](https://github.com/Perfare/Zygisk-Il2CppDumper) (tested).
+ 
 # How to use the SDK
 You can include an namespace header to compile whole classes within a namespace or just compile a single class, for example take a look at SDK result.
 
