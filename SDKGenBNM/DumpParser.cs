@@ -8,9 +8,9 @@ namespace Il2CppSDK
 {
     public class DumpClass
     {
-        public string Name { get; set; }
-        public string Namespace { get; set; }
-        public string BaseType { get; set; }
+        public string? Name { get; set; }
+        public string? Namespace { get; set; }
+        public string? BaseType { get; set; }
         public List<string> Modifiers { get; set; } = new List<string>();
         public List<DumpField> Fields { get; set; } = new List<DumpField>();
         public List<DumpMethod> Methods { get; set; } = new List<DumpMethod>();
@@ -18,35 +18,35 @@ namespace Il2CppSDK
         public bool IsStruct { get; set; }
         public bool IsSealed { get; set; }
         public bool IsAbstract { get; set; }
-        public string Module { get; set; }
+        public string? Module { get; set; }
     }
 
     public class DumpField
     {
-        public string Name { get; set; }
-        public string Type { get; set; }
+        public string? Name { get; set; }
+        public string? Type { get; set; }
         public List<string> Modifiers { get; set; } = new List<string>();
         public bool IsStatic { get; set; }
-        public string Offset { get; set; }
-        public object ConstantValue { get; set; }
+        public string? Offset { get; set; }
+        public object? ConstantValue { get; set; }
         public bool IsLiteral { get; set; }
     }
 
     public class DumpMethod
     {
-        public string Name { get; set; }
-        public string ReturnType { get; set; }
+        public string? Name { get; set; }
+        public string? ReturnType { get; set; }
         public List<string> Modifiers { get; set; } = new List<string>();
         public List<DumpParameter> Parameters { get; set; } = new List<DumpParameter>();
         public bool IsStatic { get; set; }
         public bool IsConstructor { get; set; }
-        public string Offset { get; set; }
+        public string? Offset { get; set; }
     }
 
     public class DumpParameter
     {
-        public string Name { get; set; }
-        public string Type { get; set; }
+        public string? Name { get; set; }
+        public string? Type { get; set; }
         public bool IsOut { get; set; }
     }
 
@@ -54,7 +54,7 @@ namespace Il2CppSDK
     {
         private Dictionary<string, List<DumpClass>> namespaces = new Dictionary<string, List<DumpClass>>();
         private string currentNamespace = "";
-        private DumpClass currentClass = null;
+        private DumpClass? currentClass = null;
         private string currentModule = "";
         private bool insideClass = false;
         private int braceLevel = 0;
@@ -62,30 +62,67 @@ namespace Il2CppSDK
         public Dictionary<string, List<DumpClass>> ParseDumpFile(string filePath)
         {
             var lines = File.ReadAllLines(filePath);
-            
+            var detectedNamespaces = new HashSet<string>();
+            var detectedClasses = new List<string>();
+
             for (int i = 0; i < lines.Length; i++)
             {
                 var line = lines[i].Trim();
-                
+
                 if (string.IsNullOrEmpty(line))
                     continue;
 
-                ParseLine(line);
+                if (line.StartsWith("// Namespace: "))
+                {
+                    var ns = line.Substring("// Namespace: ".Length).Trim();
+                    if (string.IsNullOrEmpty(ns)) ns = "GlobalNamespace";
+                    detectedNamespaces.Add(ns);
+                }
+                if (line.Contains(" class ") || line.Contains(" struct ") || line.Contains("enum "))
+                {
+                    string? className = null;
+                    if (line.Contains(" class "))
+                    {
+                        var parts = line.Split(new[] { " class " }, StringSplitOptions.None);
+                        className = parts.Length > 1 ? parts[1].Trim() : null;
+                        if (className != null && className.Contains(" : "))
+                            className = className.Split(new[] { " : " }, StringSplitOptions.None)[0].Trim();
+                        if (className != null)
+                            className = className.Replace("{", "").Trim();
+                    }
+                    else if (line.Contains(" struct "))
+                    {
+                        var parts = line.Split(new[] { " struct " }, StringSplitOptions.None);
+                        className = parts.Length > 1 ? parts[1].Trim() : null;
+                        if (className != null)
+                            className = className.Replace("{", "").Trim();
+                    }
+                    else if (line.Contains("enum "))
+                    {
+                        var match = Regex.Match(line, @"enum\s+(\w+)");
+                        if (match.Success)
+                            className = match.Groups[1].Value;
+                    }
+                    if (!string.IsNullOrEmpty(className))
+                        detectedClasses.Add(className);
+                }
+
+                ParseLine(lines, i);
             }
 
             return namespaces;
         }
 
-        private void ParseLine(string line)
+        private void ParseLine(string[] lines, int index)
         {
-            // Parse module/dll information
+            var line = lines[index].Trim();
+
             if (line.StartsWith("// Dll : "))
             {
                 currentModule = line.Substring("// Dll : ".Length).Trim();
                 return;
             }
 
-            // Parse namespace
             if (line.StartsWith("// Namespace: "))
             {
                 currentNamespace = line.Substring("// Namespace: ".Length).Trim();
@@ -96,7 +133,6 @@ namespace Il2CppSDK
                 return;
             }
 
-            // Track brace levels
             if (line.Contains("{"))
                 braceLevel++;
             if (line.Contains("}"))
@@ -109,14 +145,12 @@ namespace Il2CppSDK
                 }
             }
 
-            // Parse class/struct/enum declarations
             if (!insideClass && (line.Contains(" class ") || line.Contains(" struct ") || line.Contains("enum ")))
             {
-                ParseClassDeclaration(line);
+                ParseClassDeclaration(lines, index, line);
                 return;
             }
 
-            // Parse fields and methods inside class
             if (insideClass && currentClass != null)
             {
                 if (line.Contains("; // 0x"))
@@ -134,31 +168,65 @@ namespace Il2CppSDK
             }
         }
 
-        private void ParseClassDeclaration(string line)
+        private void ParseClassDeclaration(string[] lines, int index, string line)
         {
+            if (string.IsNullOrEmpty(currentNamespace) || currentNamespace == "GlobalNamespace")
+            {
+                for (int j = index - 1; j >= Math.Max(0, index - 12); j--)
+                {
+                    var prev = lines[j].Trim();
+                    if (prev.StartsWith("// Namespace: "))
+                    {
+                        var ns = prev.Substring("// Namespace: ".Length).Trim();
+                        if (!string.IsNullOrEmpty(ns))
+                        {
+                            currentNamespace = ns;
+                        }
+                        break;
+                    }
+                }
+            }
+
             var classObj = new DumpClass();
             classObj.Namespace = currentNamespace;
             classObj.Module = currentModule;
 
-            // Parse modifiers and class name
             if (line.Contains(" class "))
             {
                 var parts = line.Split(new[] { " class " }, StringSplitOptions.None);
                 var modifierPart = parts[0].Trim();
                 var namePart = parts[1].Trim();
 
-                // Extract modifiers
                 var modifiers = modifierPart.Split(' ').Where(m => !string.IsNullOrEmpty(m)).ToList();
                 classObj.Modifiers = modifiers;
                 classObj.IsSealed = modifiers.Contains("sealed");
                 classObj.IsAbstract = modifiers.Contains("abstract");
 
-                // Extract class name and inheritance
                 if (namePart.Contains(" : "))
                 {
                     var nameAndBase = namePart.Split(new[] { " : " }, StringSplitOptions.None);
                     classObj.Name = nameAndBase[0].Trim();
-                    classObj.BaseType = nameAndBase[1].Trim();
+                    var basePart = nameAndBase[1].Trim();
+                    // strip any trailing inline comment like "// TypeDefIndex: N"
+                    var commentIdx = basePart.IndexOf("//");
+                    if (commentIdx >= 0)
+                        basePart = basePart.Substring(0, commentIdx).Trim();
+                    // extract the first base type while ignoring commas inside generic angle brackets
+                    int depth = 0;
+                    int cut = basePart.Length;
+                    for (int k = 0; k < basePart.Length; k++)
+                    {
+                        var ch = basePart[k];
+                        if (ch == '<') depth++;
+                        else if (ch == '>') depth = Math.Max(0, depth - 1);
+                        else if (ch == ',' && depth == 0)
+                        {
+                            cut = k;
+                            break;
+                        }
+                    }
+                    var firstBase = (cut <= basePart.Length) ? basePart.Substring(0, cut).Trim() : basePart.Trim();
+                    classObj.BaseType = firstBase;
                 }
                 else
                 {
@@ -185,10 +253,8 @@ namespace Il2CppSDK
                 }
             }
 
-            // Clean up class name
             classObj.Name = CleanName(classObj.Name);
 
-            // Add to namespace
             if (!namespaces.ContainsKey(currentNamespace))
             {
                 namespaces[currentNamespace] = new List<DumpClass>();
@@ -205,7 +271,6 @@ namespace Il2CppSDK
 
             try
             {
-                // Pattern: [modifiers] type fieldName; // 0xOffset
                 var match = Regex.Match(line, @"^(.+?)\s+(\w+);\s*//\s*0x([A-Fa-f0-9]+)");
                 if (match.Success)
                 {
@@ -217,13 +282,10 @@ namespace Il2CppSDK
                     field.Name = fieldName;
                     field.Offset = offset;
 
-                    // Parse modifiers and type
                     var parts = typeAndModifiers.Split(' ').Where(p => !string.IsNullOrEmpty(p)).ToList();
-                    
-                    // Extract modifiers
                     var modifiers = new List<string>();
                     string fieldType = "";
-                    
+
                     for (int i = 0; i < parts.Count; i++)
                     {
                         if (parts[i] == "public" || parts[i] == "private" || parts[i] == "protected" ||
@@ -235,7 +297,6 @@ namespace Il2CppSDK
                         }
                         else
                         {
-                            // Remaining parts form the type
                             fieldType = string.Join(" ", parts.Skip(i));
                             break;
                         }
@@ -248,7 +309,6 @@ namespace Il2CppSDK
             }
             catch (Exception)
             {
-                // Ignore malformed field lines
             }
         }
 
@@ -258,7 +318,6 @@ namespace Il2CppSDK
 
             try
             {
-                // Pattern: [modifiers] returnType methodName(parameters) { }
                 var match = Regex.Match(line, @"^(.+?)\s+(\w+)\s*\(([^)]*)\)\s*\{\s*\}");
                 if (match.Success)
                 {
@@ -269,12 +328,10 @@ namespace Il2CppSDK
                     var method = new DumpMethod();
                     method.Name = methodName;
 
-                    // Parse modifiers and return type
                     var parts = returnTypeAndModifiers.Split(' ').Where(p => !string.IsNullOrEmpty(p)).ToList();
-                    
                     var modifiers = new List<string>();
                     string returnType = "";
-                    
+
                     for (int i = 0; i < parts.Count; i++)
                     {
                         if (parts[i] == "public" || parts[i] == "private" || parts[i] == "protected" ||
@@ -296,7 +353,6 @@ namespace Il2CppSDK
                     method.Modifiers = modifiers;
                     method.IsConstructor = methodName == ".ctor" || methodName == currentClass.Name;
 
-                    // Parse parameters
                     if (!string.IsNullOrEmpty(parametersStr))
                     {
                         var paramParts = parametersStr.Split(',');
@@ -323,7 +379,6 @@ namespace Il2CppSDK
             }
             catch (Exception)
             {
-                // Ignore malformed method lines
             }
         }
 
@@ -333,7 +388,6 @@ namespace Il2CppSDK
 
             try
             {
-                // Pattern: fieldName = value,
                 var match = Regex.Match(line, @"(\w+)\s*=\s*([^,]+)");
                 if (match.Success)
                 {
@@ -342,11 +396,10 @@ namespace Il2CppSDK
 
                     var field = new DumpField();
                     field.Name = fieldName;
-                    field.Type = "int"; // Default enum type
+                    field.Type = "int";
                     field.IsLiteral = true;
                     field.IsStatic = true;
-                    
-                    // Try to parse numeric value
+
                     if (int.TryParse(value, out int intValue))
                     {
                         field.ConstantValue = intValue;
@@ -361,11 +414,10 @@ namespace Il2CppSDK
             }
             catch (Exception)
             {
-                // Ignore malformed enum field lines
             }
         }
 
-        private string CleanName(string name)
+        private string CleanName(string? name)
         {
             if (string.IsNullOrEmpty(name))
                 return "_";
