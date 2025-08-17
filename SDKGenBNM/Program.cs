@@ -15,7 +15,9 @@ namespace Il2CppSDK
     class Program
     {
         static Dictionary<string, int> m_DuplicateMethodTable = new Dictionary<string, int>();
-        static string OUTPUT_DIR = "SDK";
+    static string OUTPUT_DIR = "SDK";
+    static string OUTPUT_CS_DIR = Path.Combine(OUTPUT_DIR, "SDKcs");
+    static string OUTPUT_DLL_DIR = Path.Combine(OUTPUT_DIR, "SDKdll");
         static ModuleDefMD? currentModule = null;
         static Dictionary<string, List<DumpClass>>? parsedNamespaces = null;
         static StreamWriter? currentFile = null;
@@ -42,7 +44,8 @@ namespace Il2CppSDK
 
             foreach (var field in clazz.Fields)
             {
-                var fieldName = field.Name.Replace("::", "_").Replace("<", "$").Replace(">", "$").Replace("k__BackingField", "").Replace(".", "_").Replace("`", "_");
+                var fieldName = field.Name.Replace("::", "_").Replace("<", "$" ).Replace(">", "$" ).Replace("k__BackingField", "").Replace(".", "_").Replace("`", "_");
+                var originalFieldName = field.Name;
 
                 if (fieldName.Equals("auto") || fieldName.Equals("register"))
                     fieldName += "_";
@@ -55,12 +58,12 @@ namespace Il2CppSDK
                 currentFile!.WriteLine(string.Format(" {0}{1} {2}() {{", (field.IsStatic ? "static " : ""), "T", Utils.FormatInvalidName(fieldName)));
                 if (field.IsStatic)
                 {
-                    WriteIndented(string.Format("\tstatic BNM::Field<{0}> __bnm__field__ = StaticClass().GetField(\"{1}\");", "T", fieldName));
+                    WriteIndented(string.Format("\tstatic BNM::Field<{0}> __bnm__field__ = StaticClass().GetField(\"{1}\");", "T", originalFieldName));
                     WriteIndented("\treturn __bnm__field__();");
                 }
                 else
                 {
-                    WriteIndented(string.Format("\tstatic BNM::Field<{0}> __bnm__field__ = StaticClass().GetField(\"{1}\");", "T", fieldName));
+                    WriteIndented(string.Format("\tstatic BNM::Field<{0}> __bnm__field__ = StaticClass().GetField(\"{1}\");", "T", originalFieldName));
                     WriteIndented("\t__bnm__field__.SetInstance((BNM::IL2CPP::Il2CppObject*)this);");
                     WriteIndented("\treturn __bnm__field__();");
                 }
@@ -71,12 +74,12 @@ namespace Il2CppSDK
                 WriteIndented(string.Format("{0}{1} set_{2}({3}) {{", (field.IsStatic ? "static " : ""), "void", Utils.FormatInvalidName(fieldName), fieldType + " value"));
                 if (field.IsStatic)
                 {
-                    WriteIndented(string.Format("\tstatic BNM::Field<{0}> __bnm__field__ = StaticClass().GetField(\"{1}\");", fieldType, fieldName));
+                    WriteIndented(string.Format("\tstatic BNM::Field<{0}> __bnm__field__ = StaticClass().GetField(\"{1}\");", fieldType, originalFieldName));
                     WriteIndented("\t__bnm__field__.Set(value);");
                 }
                 else
                 {
-                    WriteIndented(string.Format("\tstatic BNM::Field<{0}> __bnm__field__ = StaticClass().GetField(\"{1}\");", fieldType, fieldName));
+                    WriteIndented(string.Format("\tstatic BNM::Field<{0}> __bnm__field__ = StaticClass().GetField(\"{1}\");", fieldType, originalFieldName));
                     WriteIndented("\t__bnm__field__.SetInstance((BNM::IL2CPP::Il2CppObject*)this);");
                     WriteIndented("\t__bnm__field__.Set(value);");
                 }
@@ -97,8 +100,12 @@ namespace Il2CppSDK
                     {
                         continue;
                     }
+                    if (field.Name.Contains("k__BackingField"))
+                    {
+                        continue;
+                    }
 
-                    var fieldName = field.Name.Replace("::", "_").Replace("<", "$").Replace(">", "$").Replace("k__BackingField", "").Replace(".", "_").Replace("`", "_");
+                    var fieldName = field.Name.Replace("::", "_").Replace(".", "_").Replace("`", "_");
 
                     if (fieldName.Equals("auto") || fieldName.Equals("register"))
                         fieldName += "_";
@@ -115,51 +122,57 @@ namespace Il2CppSDK
                 var field = currentModule.ResolveField(rid);
 
                 if (field == null)
+                    {
+                        continue;
+                    }
+
+                if (field.Name.Contains("k__BackingField"))
                 {
                     continue;
                 }
 
-                var fieldName = field.Name.Replace("::", "_").Replace("<", "$").Replace(">", "$").Replace("k__BackingField", "").Replace(".", "_").Replace("`", "_");
+                var fieldName = field.Name.Replace("::", "_").Replace(".", "_").Replace("`", "_");
 
-                if (fieldName.Equals("auto") || fieldName.Equals("register"))
-                    fieldName += "_";
+                    if (fieldName.Equals("auto") || fieldName.Equals("register"))
+                        fieldName += "_";
 
-                var fieldType = Utils.Il2CppTypeToCppType(field.FieldType, clazz);
+                    var fieldType = Utils.Il2CppTypeToCppType(field.FieldType, clazz);
 
-                //get
-                WriteIndented(string.Format("/* @brief Orig Type: {0} */", field.FieldType.FullName));
-                WriteIndented(string.Format("template <typename T = {0}>", fieldType), true);
-                currentFile!.WriteLine(string.Format(" {0}{1} {2}() {{", (field.IsStatic ? "static " : ""), "T", Utils.FormatInvalidName(fieldName)));
-                if (field.IsStatic)
-                {
-                    WriteIndented(string.Format("\tstatic BNM::Field<{0}> __bnm__field__ = StaticClass().GetField(\"{1}\");", "T", fieldName));
-                    WriteIndented("\treturn __bnm__field__();");
-                }
-                else
-                {
-                    WriteIndented(string.Format("\tstatic BNM::Field<{0}> __bnm__field__ = StaticClass().GetField(\"{1}\");", "T", fieldName));
-                    WriteIndented("\t__bnm__field__.SetInstance((BNM::IL2CPP::Il2CppObject*)this);");
-                    WriteIndented("\treturn __bnm__field__();");
-                }
-                WriteIndented("}");
+                    //get
+                    WriteIndented(string.Format("/* @brief Orig Type: {0} */", field.FieldType.FullName));
+                    WriteIndented(string.Format("template <typename T = {0}>", fieldType), true);
+                    currentFile!.WriteLine(string.Format(" {0}{1} {2}() {{", (field.IsStatic ? "static " : ""), "T", Utils.FormatInvalidName(fieldName)));
+                    if (field.IsStatic)
+                    {
+                        WriteIndented(string.Format("\tstatic BNM::Field<{0}> __bnm__field__ = StaticClass().GetField(\"{1}\");", "T", fieldName));
+                        WriteIndented("\treturn __bnm__field__();");
+                    }
+                    else
+                    {
+                        WriteIndented(string.Format("\tstatic BNM::Field<{0}> __bnm__field__ = StaticClass().GetField(\"{1}\");", "T", fieldName));
+                        WriteIndented("\t__bnm__field__.SetInstance((BNM::IL2CPP::Il2CppObject*)this);");
+                        WriteIndented("\treturn __bnm__field__();");
+                    }
+                    WriteIndented("}");
 
-                // set
-                WriteIndented(string.Format("/* @param {0} Orig Type: {1} */", "value", field.FieldType.FullName));
-                WriteIndented(string.Format("{0}{1} set_{2}({3}) {{", (field.IsStatic ? "static " : ""), "void", Utils.FormatInvalidName(fieldName), fieldType + " value"));
-                if (field.IsStatic)
-                {
-                    WriteIndented(string.Format("\tstatic BNM::Field<{0}> __bnm__field__ = StaticClass().GetField(\"{1}\");", fieldType, fieldName));
-                    WriteIndented("\t__bnm__field__.Set(value);");
+                    // set
+                    WriteIndented(string.Format("/* @param {0} Orig Type: {1} */", "value", field.FieldType.FullName));
+                    WriteIndented(string.Format("{0}{1} set_{2}({3}) {{", (field.IsStatic ? "static " : ""), "void", Utils.FormatInvalidName(fieldName), fieldType + " value"));
+                    if (field.IsStatic)
+                    {
+                        WriteIndented(string.Format("\tstatic BNM::Field<{0}> __bnm__field__ = StaticClass().GetField(\"{1}\");", fieldType, fieldName));
+                        WriteIndented("\t__bnm__field__.Set(value);");
+                    }
+                    else
+                    {
+                        WriteIndented(string.Format("\tstatic BNM::Field<{0}> __bnm__field__ = StaticClass().GetField(\"{1}\");", fieldType, fieldName));
+                        WriteIndented("\t__bnm__field__.SetInstance((BNM::IL2CPP::Il2CppObject*)this);");
+                        WriteIndented("\t__bnm__field__.Set(value);");
+                    }
+                    WriteIndented("}");
                 }
-                else
-                {
-                    WriteIndented(string.Format("\tstatic BNM::Field<{0}> __bnm__field__ = StaticClass().GetField(\"{1}\");", fieldType, fieldName));
-                    WriteIndented("\t__bnm__field__.SetInstance((BNM::IL2CPP::Il2CppObject*)this);");
-                    WriteIndented("\t__bnm__field__.Set(value);");
-                }
-                WriteIndented("}");
-            }
         }
+
         // Methods for dump.cs parsing
         static void ParseMethodsDump(DumpClass clazz)
         {
@@ -241,7 +254,7 @@ namespace Il2CppSDK
                     currentFile.Write(string.Join(", ", paramNames.Select(x => Utils.FormatInvalidName(x))));
                     currentFile.WriteLine(");");
                 }
-                
+
                 WriteIndented("}");
             }
         }
@@ -653,7 +666,7 @@ namespace Il2CppSDK
         }
 
         // ParseClasses for dump.cs input
-        static void ParseClassesDump()
+        static void ParseClassesDump(string sdkOutputDir)
         {
             if (parsedNamespaces == null)
                 return;
@@ -669,7 +682,7 @@ namespace Il2CppSDK
                     var className = clazz.Name.Replace("<", "").Replace(">", "");
                     var classFilename = string.Concat(className.Split(Path.GetInvalidFileNameChars()));
 
-                    string outputPath = OUTPUT_DIR;
+                    string outputPath = sdkOutputDir;
 
                     if (!Directory.Exists(outputPath))
                         Directory.CreateDirectory(outputPath);
@@ -695,21 +708,30 @@ namespace Il2CppSDK
 
                     outputPath += "/" + classFilename + ".h";
 
-                    currentFile = new StreamWriter(outputPath);
-
-                    ParseClassDump(clazz);
-                    currentFile.Close();
+                    outputPath = SanitizeFileName(outputPath);
+                    try
+                    {
+                        currentFile = new StreamWriter(outputPath);
+                        ParseClassDump(clazz);
+                        currentFile.Close();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error writing file: {ex.Message}");
+                        Console.WriteLine("Press any key to continue...");
+                        Console.ReadKey();
+                    }
                 }
             }
         }
 
         // ParseClasses for dnlib input
-        static void ParseClasses()
+        static void ParseClasses(string sdkOutputDir)
         {
             if (currentModule == null)
                 return;
 
-            foreach(var rid in currentModule.Metadata.GetTypeDefRidList())
+            foreach (var rid in currentModule.Metadata.GetTypeDefRidList())
             {
                 var type = currentModule.ResolveTypeDef(rid);
 
@@ -722,7 +744,7 @@ namespace Il2CppSDK
                 var classFilename = string.Concat(className.Split(Path.GetInvalidFileNameChars()));
                 var validClassname = Utils.FormatInvalidName(className);
 
-                string outputPath = OUTPUT_DIR;
+                string outputPath = sdkOutputDir;
 
                 if (!Directory.Exists(outputPath))
                     Directory.CreateDirectory(outputPath);
@@ -738,7 +760,7 @@ namespace Il2CppSDK
 
                 outputPath += "/Includes";
 
-                if(namespaze.Length > 0)
+                if (namespaze.Length > 0)
                 {
                     outputPath += "/" + namespaze;
                 }
@@ -748,40 +770,57 @@ namespace Il2CppSDK
 
                 outputPath += "/" + classFilename + ".h";
 
-                currentFile = new StreamWriter(outputPath);
-
-                ParseClass(type);
-                currentFile.Close();
+                outputPath = SanitizeFileName(outputPath);
+                try
+                {
+                    currentFile = new StreamWriter(outputPath);
+                    ParseClass(type);
+                    currentFile.Close();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error writing file: {ex.Message}");
+                    Console.WriteLine("Press any key to continue...");
+                    Console.ReadKey();
+                }
             }
+        }
+        // Sanitizes a file path by replacing invalid filename characters and limiting length
+        private static string SanitizeFileName(string filePath)
+        {
+            var invalidChars = Path.GetInvalidFileNameChars();
+            var parts = filePath.Split('/', '\\');
+            for (int i = 0; i < parts.Length; i++)
+            {
+                parts[i] = new string(parts[i].Select(ch => invalidChars.Contains(ch) ? '_' : ch).ToArray());
+                if (parts[i].Length > 100) // limit each part to 100 chars
+                    parts[i] = parts[i].Substring(0, 100);
+            }
+            var sanitized = string.Join(Path.DirectorySeparatorChar.ToString(), parts);
+            if (sanitized.Length > 255)
+                sanitized = sanitized.Substring(0, 255);
+            return sanitized;
         }
         static void ParseDumpFile(string dumpFile)
         {
             Console.WriteLine("Generating SDK for {0}...", Path.GetFileName(dumpFile));
-
             var parser = new DumpParser();
             parsedNamespaces = parser.ParseDumpFile(dumpFile);
-
-            string moduleOutput = OUTPUT_DIR;
-
+            string moduleOutput = OUTPUT_CS_DIR;
             if (!Directory.Exists(moduleOutput))
                 Directory.CreateDirectory(moduleOutput);
-
-            ParseClassesDump();
+            ParseClassesDump(moduleOutput);
         }
 
         static void ParseModule(string moduleFile)
         {
             Console.WriteLine("Generating SDK for {0}...", Path.GetFileName(moduleFile));
-
             ModuleContext modCtx = ModuleDef.CreateModuleContext();
             currentModule = ModuleDefMD.Load(moduleFile, modCtx);
-
-            string moduleOutput = OUTPUT_DIR;
-
+            string moduleOutput = OUTPUT_DLL_DIR;
             if (!Directory.Exists(moduleOutput))
                 Directory.CreateDirectory(moduleOutput);
-
-            ParseClasses();
+            ParseClasses(moduleOutput);
         }
         
         static void Main(string[] args)
@@ -797,8 +836,24 @@ namespace Il2CppSDK
                 return;
             }
 
-            if (Directory.Exists(OUTPUT_DIR))
-                Directory.Delete(OUTPUT_DIR, true);
+            // Delete and recreate output directories based on input type
+            if (args.Length > 0)
+            {
+                if (args[0].EndsWith(".cs"))
+                {
+                    if (Directory.Exists(OUTPUT_CS_DIR))
+                        Directory.Delete(OUTPUT_CS_DIR, true);
+                    Directory.CreateDirectory(OUTPUT_CS_DIR);
+                }
+                else if (args[0].EndsWith(".dll") || Directory.Exists(args[0]))
+                {
+                    if (Directory.Exists(OUTPUT_DLL_DIR))
+                        Directory.Delete(OUTPUT_DLL_DIR, true);
+                    Directory.CreateDirectory(OUTPUT_DLL_DIR);
+                }
+                if (!Directory.Exists(OUTPUT_DIR))
+                    Directory.CreateDirectory(OUTPUT_DIR);
+            }
 
             if (Directory.Exists(args[0]))
             {
@@ -842,7 +897,14 @@ namespace Il2CppSDK
                 return;
             }
 
-            Console.WriteLine("SDK generation completed!");
+            if (args[0].EndsWith(".cs"))
+            {
+                Console.WriteLine("SDK generation for dump.cs completed!");
+            }
+            else if (args[0].EndsWith(".dll"))
+            {
+                Console.WriteLine("SDK generation completed!");
+            }
         }
     }
 }
