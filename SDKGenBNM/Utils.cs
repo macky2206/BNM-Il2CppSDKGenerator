@@ -12,7 +12,89 @@ public static class Utils
     {
         return char.IsDigit(str[0]);
     }
-   public static string Il2CppTypeToCppType(TypeSig? type, TypeDef? parentType = null)
+
+    public static string ConvertTypeToCpp(string typeName)
+    {
+        if (string.IsNullOrEmpty(typeName))
+            return "BNM::IL2CPP::Il2CppObject*";
+
+        // Handle arrays
+        if (typeName.Contains("[]"))
+        {
+            var baseType = typeName.Replace("[]", "");
+            var convertedBase = ConvertTypeToCpp(baseType);
+            return $"BNM::Structures::Mono::Array<{convertedBase}>*";
+        }
+
+        // Handle generics
+        if (typeName.Contains("<") && typeName.Contains(">"))
+        {
+            if (typeName.StartsWith("List<"))
+            {
+                var match = Regex.Match(typeName, @"List<(.+)>");
+                if (match.Success)
+                {
+                    var innerType = match.Groups[1].Value;
+                    return $"BNM::Structures::Mono::List<{ConvertTypeToCpp(innerType)}>*";
+                }
+            }
+            else if (typeName.StartsWith("Dictionary<"))
+            {
+                var match = Regex.Match(typeName, @"Dictionary<(.+),\s*(.+)>");
+                if (match.Success)
+                {
+                    var keyType = match.Groups[1].Value;
+                    var valueType = match.Groups[2].Value;
+                    return $"BNM::Structures::Mono::Dictionary<{ConvertTypeToCpp(keyType)}, {ConvertTypeToCpp(valueType)}>*";
+                }
+            }
+            else
+            {
+                return "void* /*GENERICTYPE*/";
+            }
+        }
+
+        // Clean up type name
+        typeName = typeName.Replace("System.", "").Trim();
+
+        return typeName switch
+        {
+            "Void" or "void" => "void",
+            "Int8" => "int8_t",
+            "UInt8" => "uint8_t",
+            "Int16" or "short" => "short",
+            "Int32" or "int" => "int",
+            "Int64" or "long" => "int64_t",
+            "Single" or "float" => "float",
+            "Double" or "double" => "double",
+            "Boolean" or "bool" => "bool",
+            "Char" or "char" => "char",
+            "UInt16" or "ushort" => "BNM::Types::ushort",
+            "UInt32" or "uint" => "BNM::Types::uint",
+            "UInt64" or "ulong" => "BNM::Types::ulong",
+            "Decimal" or "decimal" => "BNM::Types::decimal",
+            "Byte" or "byte" => "BNM::Types::byte",
+            "SByte" or "sbyte" => "BNM::Types::sbyte",
+            "String" or "string" => "BNM::Structures::Mono::String*",
+            "Type" => "BNM::MonoType*",
+            "IntPtr" => "BNM::Types::nuint",
+            "Object" or "object" => "BNM::IL2CPP::Il2CppObject*",
+            "Vector2" => "BNM::Structures::Unity::Vector2",
+            "Vector3" => "BNM::Structures::Unity::Vector3",
+            "Vector4" => "BNM::Structures::Unity::Vector4",
+            "Quaternion" => "BNM::Structures::Unity::Quaternion",
+            "Rect" => "BNM::Structures::Unity::Rect",
+            "Color" => "BNM::Structures::Unity::Color",
+            "Color32" => "BNM::Structures::Unity::Color32",
+            "Ray" => "BNM::Structures::Unity::Ray",
+            "RaycastHit" => "BNM::Structures::Unity::RaycastHit",
+            "MonoBehaviour" => "BNM::UnityEngine::MonoBehaviour*",
+            _ when typeName.StartsWith("UnityEngine.") => "BNM::UnityEngine::Object*",
+            _ => "BNM::IL2CPP::Il2CppObject*"
+        };
+    }
+
+    public static string Il2CppTypeToCppType(TypeSig? type, TypeDef? parentType = null)
     {
         if (type == null)
             return "BNM::IL2CPP::Il2CppObject*";
@@ -73,7 +155,6 @@ public static class Utils
             result = $"{ns}{FormatInvalidName(type.GetName())}*";
         }
 
-
         if (isArray)
             result = $"BNM::Structures::Mono::Array<{result}>*";
 
@@ -89,6 +170,12 @@ public static class Utils
             type = Il2CppTypeToCppType(ff.FieldType);
         }
         return type;
+    }
+
+    public static string GetEnumType(object? clazz)
+    {
+        // Default enum type for dump.cs parsing
+        return "int";
     }
 
     public static string FormatIl2CppGeneric(TypeSig typeSig)
@@ -123,6 +210,12 @@ public static class Utils
         result += string.Join(", ", args);
         result += ">*";
         return result;
+    }
+
+    public static string FormatIl2CppGeneric(object? typeSig)
+    {
+        // For dump.cs, we'll handle generics in ConvertTypeToCpp
+        return "void*";
     }
     
     public static bool IsKeyword(string str)
@@ -208,5 +301,11 @@ public static class Utils
     public static bool IsStruct(this TypeDef type)
     {
         return type.IsValueType && !type.IsEnum;
+    }
+
+    public static bool IsStruct(this object? type)
+    {
+        // For dump.cs parsing, we'll determine this from the DumpClass.IsStruct property
+        return false;
     }
 }
