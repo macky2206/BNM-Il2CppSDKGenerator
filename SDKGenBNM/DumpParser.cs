@@ -240,7 +240,20 @@ namespace Il2CppSDK
                 var namePart = parts[1].Trim();
 
                 classObj.Modifiers = modifierPart.Split(' ').Where(m => !string.IsNullOrEmpty(m)).ToList();
-                classObj.Name = namePart.Replace("{", "").Trim();
+                if (namePart.Contains(" : "))
+                {
+                    var nameAndBase = namePart.Split(new[] { " : " }, StringSplitOptions.None);
+                    var rawName = nameAndBase[0].Trim();
+                    var commentIdx = rawName.IndexOf("//");
+                    if (commentIdx >= 0)
+                        rawName = rawName.Substring(0, commentIdx).Trim();
+                    classObj.Name = rawName.Replace("{", "").Trim();
+                }
+                else
+                {
+                    classObj.Name = namePart.Replace("{", "").Trim();
+                }
+
                 classObj.IsStruct = true;
             }
             else if (line.Contains("enum "))

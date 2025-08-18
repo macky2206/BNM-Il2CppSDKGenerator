@@ -169,11 +169,6 @@ namespace Il2CppSDK
 
         static void ParseMethodsDump(DumpClass clazz)
         {
-            if (clazz.IsStruct)
-            {
-                return;
-            }
-
             foreach (var method in clazz.Methods)
             {
                 if (method.IsConstructor)
@@ -253,11 +248,7 @@ namespace Il2CppSDK
 
         static void ParseMethods(TypeDef clazz)
         {
-            if (clazz.IsStruct())
-            {
-                return;
-            }
-
+            
             foreach (var rid in currentModule!.Metadata.GetMethodRidList(clazz.Rid))
             {
                 var method = currentModule.ResolveMethod(rid);
