@@ -31,5 +31,5 @@ jobs:
     - name: Upload publish artifact
       uses: actions/upload-artifact@v4
       with:
-        name: publish
+        name: BNM-SDKGen
         path: ./publish
